@@ -1367,7 +1367,7 @@ const state = {
     askDescription: true,  // pedir descritivo ao marcar interdição
     followUser: true,      // seguir usuário automaticamente (default)
     kmzFillOpacity: 0.08,  // opacidade do preenchimento de perímetros (0 = transparente)
-    kalmanNoise: 3.0,      // ruído de processo do filtro Kalman (0.5 a 10)
+    kalmanNoise: 10.0,     // ruído de processo do filtro Kalman (0.5 a 10)
   },
 };
 
@@ -1959,8 +1959,8 @@ function haversine(lat1, lng1, lat2, lng2) {
 // Ruído de processo do Kalman — configurável pelo usuário via Configurações.
 // Valores baixos (ex: 0.5) → mais suavização (rota mais reta, mas pode "cortar" curvas).
 // Valores altos (ex: 10)  → menos suavização (acompanha melhor mudanças bruscas).
-// 3.0 é o padrão equilibrado para caminhada/carro urbano.
-const KALMAN_DEFAULT = 3.0;
+// 10.0 é o padrão — prioriza responsividade (acompanha curvas/mudanças bruscas).
+const KALMAN_DEFAULT = 10.0;
 let kalmanProcessNoise = KALMAN_DEFAULT;
 
 function kalmanFilter(newLat, newLng, newAccuracy, newTimestamp) {
@@ -3827,7 +3827,7 @@ function wireEvents() {
     const sliderVal = Math.round(state.settings.kmzFillOpacity * 100);
     document.getElementById('sliderOpacity').value = sliderVal;
     document.getElementById('opacityValue').textContent = sliderVal + '%';
-    const kVal = state.settings.kalmanNoise || 3.0;
+    const kVal = state.settings.kalmanNoise || 10.0;
     document.getElementById('sliderKalman').value = kVal;
     document.getElementById('kalmanValue').textContent = kVal.toFixed(1);
     openModal('settingsModal');
