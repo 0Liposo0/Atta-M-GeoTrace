@@ -6,6 +6,8 @@
 <meta name="theme-color" content="#0a0e1a">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<!-- CSP: libera WebAssembly (sql.js) para exportação GeoPackage na Web -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' https: data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' https: blob:; style-src 'self' 'unsafe-inline' https:; img-src 'self' data: blob: https:; connect-src 'self' https: wss: data: blob:; worker-src 'self' blob: data:; font-src 'self' https: data:;">
 <title>Atta'M GeoTrace — Mapeamento de Campo</title>
 
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -348,6 +350,30 @@
     color: #1a1200;
   }
   .primary-action svg { width: 22px; height: 22px; }
+
+  /* Botão Encerrar/Salvar — aparece ao lado do Retomar quando gravação está pausada */
+  .finish-action {
+    flex: 1;
+    height: 48px;
+    background: linear-gradient(135deg, var(--danger) 0%, #b91c1c 100%);
+    border: none;
+    border-radius: 14px;
+    color: white;
+    font-family: var(--font-display);
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    cursor: pointer;
+    transition: all 0.15s;
+    box-shadow: 0 4px 16px rgba(239, 68, 68, 0.35);
+  }
+  .finish-action.visible { display: flex; }
+  .finish-action:active { transform: scale(0.97); }
+  .finish-action svg { width: 20px; height: 20px; }
 
   .secondary-action {
     width: 48px; height: 48px;
@@ -1067,6 +1093,12 @@
       <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="8"/></svg>
       <span id="recordBtnText">Iniciar Rota</span>
     </button>
+    <button class="finish-action" id="finishRouteBtn" aria-label="Encerrar e salvar rota">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M5 5h14v14H5z"/>
+      </svg>
+      <span>Encerrar</span>
+    </button>
     <button class="secondary-action warning-btn" id="warningBtn" aria-label="Marcar Interdição">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
@@ -1320,6 +1352,7 @@ const state = {
   projects: {},         // { name: { segments: [[latlng,...], ...], warnings: [], createdAt, distance } }
   currentSegment: null, // array being actively appended
   polylines: [],        // active leaflet polylines for current project
+  startMarker: null,    // bolinha verde marcando o início da rota (primeiro ponto do 1º segmento)
   warningMarkers: [],   // active leaflet warning markers
 
   timerStart: null,
@@ -1809,7 +1842,7 @@ const sync = {
         proj.segments.push(seg);
         if (isCurrentProj && seg.length >= 2) {
           const pl = L.polyline(seg.map(p => [p.lat, p.lng]), {
-            color: '#3b82f6', weight: 6, opacity: 0.85,
+            color: '#3b82f6', weight: 6.9, opacity: 0.85,
             lineCap: 'round', lineJoin: 'round',
           }).addTo(state.map);
           state.polylines.push(pl);
@@ -2251,9 +2284,16 @@ function createProject(name) {
 }
 
 function switchProject(name) {
+  // Se há uma gravação em andamento (ativa ou pausada), encerrar e salvar
+  // a rota do projeto atual antes de trocar. Evita que rotas fiquem "presas"
+  // em pausa ao alternar entre projetos.
   if (state.recording) {
-    toast('Pare a gravação antes de trocar', 'warning');
-    return;
+    const wasPaused = state.paused;
+    const msg = wasPaused
+      ? `Há uma rota pausada em "${state.currentProject}". Encerrar e salvar antes de trocar para "${name}"?`
+      : `Há uma gravação ativa em "${state.currentProject}". Encerrar e salvar antes de trocar para "${name}"?`;
+    if (!confirm(msg)) return;
+    stopRecording();
   }
   state.currentProject = name;
   saveState();
@@ -2285,9 +2325,34 @@ function deleteProject(name) {
 function clearProjectLayers() {
   state.polylines.forEach(pl => state.map.removeLayer(pl));
   state.polylines = [];
+  if (state.startMarker) {
+    state.map.removeLayer(state.startMarker);
+    state.startMarker = null;
+  }
   state.warningMarkers.forEach(m => state.map.removeLayer(m));
   state.warningMarkers = [];
   clearAllPerimeterLayers();
+}
+
+// Cria/atualiza a bolinha verde que marca onde a rota foi iniciada
+// (primeiro ponto do primeiro segmento com dados). Se já existe, apenas
+// reposiciona — garante idempotência quando pontos novos chegam.
+function ensureStartMarker(lat, lng) {
+  if (state.startMarker) {
+    state.startMarker.setLatLng([lat, lng]);
+    return;
+  }
+  state.startMarker = L.circleMarker([lat, lng], {
+    radius: 7,
+    color: '#ffffff',
+    weight: 2,
+    fillColor: '#10b981',
+    fillOpacity: 1,
+    opacity: 1,
+    interactive: true,
+    pane: 'markerPane',
+  }).addTo(state.map);
+  state.startMarker.bindTooltip('Início da rota', { direction: 'top', offset: [0, -8] });
 }
 
 function loadProjectOnMap() {
@@ -2299,7 +2364,7 @@ function loadProjectOnMap() {
     if (seg.length >= 2) {
       const pl = L.polyline(seg.map(p => [p.lat, p.lng]), {
         color: '#3b82f6',
-        weight: 6,
+        weight: 6.9,
         opacity: 0.85,
         lineCap: 'round',
         lineJoin: 'round',
@@ -2307,6 +2372,14 @@ function loadProjectOnMap() {
       state.polylines.push(pl);
     }
   });
+
+  // Bolinha verde no início da rota: pega o primeiro ponto do primeiro
+  // segmento que tenha pelo menos um ponto.
+  const firstSeg = proj.segments.find(s => s && s.length > 0);
+  if (firstSeg) {
+    const p = firstSeg[0];
+    ensureStartMarker(p.lat, p.lng);
+  }
 
   proj.warnings.forEach(w => addWarningMarkerToMap(w.lat, w.lng, w.note, w.t, w._itemId));
 
@@ -2464,6 +2537,10 @@ function toggleRecording() {
 }
 
 function stopRecording() {
+  // Captura o nome do projeto ANTES de qualquer mudança de state — stopRecording
+  // pode ser chamado de switchProject, que troca state.currentProject logo depois.
+  const projectName = state.currentProject;
+
   state.recording = false;
   state.paused = false;
   state.currentSegment = null;
@@ -2475,9 +2552,9 @@ function stopRecording() {
   updateRecordButton();
 
   // Sincronizar com a nuvem: cada segmento sem _itemId vira um novo item
-  if (isAuthenticated() && state.currentProject) {
-    const proj = state.projects[state.currentProject];
-    const projectId = sync.projectIdByName[state.currentProject];
+  if (isAuthenticated() && projectName) {
+    const proj = state.projects[projectName];
+    const projectId = sync.projectIdByName[projectName];
     if (projectId && proj) {
       let syncedSegments = 0;
       proj.segments.forEach(seg => {
@@ -2506,11 +2583,24 @@ function stopRecording() {
         distance: proj.distance
       });
       saveState();
+
       if (syncedSegments > 0) {
         toast(`Gravação finalizada · ${syncedSegments} sub-rota(s) enviando`, 'success');
       } else {
         toast('Gravação finalizada', 'success');
       }
+
+      // Upload do snapshot GeoPackage ao Storage — em background, sem bloquear.
+      // Regenera o arquivo completo a cada stop (upsert) e mantém project_items
+      // como fonte da verdade para realtime + edição granular.
+      uploadProjectGpkgSnapshot(projectName).then(res => {
+        if (res.ok) {
+          const kb = Math.round(res.sizeBytes / 1024);
+          toast(`Snapshot GPKG salvo · ${kb} KB`, 'success');
+        } else if (res.reason === 'upload_error') {
+          toast('Falha ao salvar snapshot GPKG no Storage', 'warning');
+        }
+      });
       return;
     }
   }
@@ -2549,6 +2639,15 @@ function addPointToRoute(lat, lng, accuracy) {
   state.currentSegment.push({ lat: fLat, lng: fLng, t: now });
   state.lastRoutePoint = { lat: fLat, lng: fLng };
 
+  // Se este é o primeiro ponto do primeiro segmento do projeto atual,
+  // coloca a bolinha verde marcando onde a rota começou.
+  const projNow = state.projects[state.currentProject];
+  const firstSegIdx = projNow.segments.findIndex(s => s && s.length > 0);
+  if (!state.startMarker && firstSegIdx >= 0) {
+    const p0 = projNow.segments[firstSegIdx][0];
+    ensureStartMarker(p0.lat, p0.lng);
+  }
+
   // Simplificação automática: quando segmento fica grande, aplica Douglas-Peucker
   // para reduzir vértices sem perder forma. Preserva últimos ~200 pontos "vivos"
   // (sem simplificar) para manter precisão na parte recém-gravada.
@@ -2576,7 +2675,7 @@ function addPointToRoute(lat, lng, accuracy) {
       existing.setLatLngs(coords);
     } else {
       const pl = L.polyline(coords, {
-        color: '#3b82f6', weight: 6, opacity: 0.85,
+        color: '#3b82f6', weight: 6.9, opacity: 0.85,
         lineCap: 'round', lineJoin: 'round',
       }).addTo(state.map);
       state.polylines[segIdx] = pl;
@@ -2597,14 +2696,18 @@ function updateRecordButton() {
   const btn = document.getElementById('recordBtn');
   const text = document.getElementById('recordBtnText');
   const pill = document.getElementById('projectPill');
+  const finishBtn = document.getElementById('finishRouteBtn');
   btn.classList.remove('recording', 'paused');
   pill.classList.remove('recording');
+  finishBtn.classList.remove('visible');
 
   if (!state.recording) {
     text.textContent = 'Iniciar Rota';
   } else if (state.paused) {
     btn.classList.add('paused');
     text.textContent = 'Retomar';
+    // Mostra o botão "Encerrar" ao lado do "Retomar" (dividindo o espaço ao meio)
+    finishBtn.classList.add('visible');
   } else {
     btn.classList.add('recording');
     pill.classList.add('recording');
@@ -2800,20 +2903,14 @@ function envelopeOf(coords) {
   return { minX, maxX, minY, maxY };
 }
 
-async function exportProject() {
-  if (!state.currentProject) {
-    toast('Nenhum projeto ativo', 'warning');
-    return;
-  }
-  const proj = state.projects[state.currentProject];
-  const projName = state.currentProject;
-
-  toast('Gerando GeoPackage...', '');
+// Gera os bytes de um GeoPackage (.gpkg) a partir do estado local do projeto.
+// Retorna Uint8Array. Usado tanto pelo download manual quanto pelo upload
+// automático de snapshot ao Supabase Storage.
+async function buildProjectGpkgBytes(proj, projName) {
+  const SQL = await loadSQL();
+  const db = new SQL.Database();
 
   try {
-    const SQL = await loadSQL();
-    const db = new SQL.Database();
-
     // ===== Schema base obrigatório do OGC GeoPackage =====
     db.run(`
       CREATE TABLE gpkg_spatial_ref_sys (
@@ -2948,6 +3045,24 @@ async function exportProject() {
     // Exportar binário
     const bytes = db.export();
     db.close();
+    return bytes;
+  } catch (e) {
+    try { db.close(); } catch(_) {}
+    throw e;
+  }
+}
+
+async function exportProject() {
+  if (!state.currentProject) {
+    toast('Nenhum projeto ativo', 'warning');
+    return;
+  }
+  const proj = state.projects[state.currentProject];
+  const projName = state.currentProject;
+
+  toast('Gerando GeoPackage...', '');
+  try {
+    const bytes = await buildProjectGpkgBytes(proj, projName);
     const blob = new Blob([bytes], { type: 'application/geopackage+sqlite3' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -2959,6 +3074,55 @@ async function exportProject() {
   } catch (e) {
     console.error(e);
     toast('Erro ao exportar: ' + e.message, 'error');
+  }
+}
+
+// Upload de snapshot GPKG ao Supabase Storage (bucket "project-routes").
+// Chamado automaticamente ao encerrar uma gravação — o GPKG funciona como
+// cache binário para download rápido, sem substituir os project_items
+// (que continuam sendo a fonte da verdade para realtime e edição granular).
+// Path: "{projectId}.gpkg" (upsert, overwrite a cada nova gravação).
+const GPKG_STORAGE_BUCKET = 'project-routes';
+
+async function uploadProjectGpkgSnapshot(projectName) {
+  if (!isAuthenticated()) return { ok: false, reason: 'not_authenticated' };
+  if (!navigator.onLine) return { ok: false, reason: 'offline' };
+
+  const proj = state.projects[projectName];
+  const projectId = sync.projectIdByName[projectName];
+  if (!proj || !projectId) return { ok: false, reason: 'no_project' };
+
+  // Só vale a pena gerar o snapshot se há pelo menos uma sub-rota com ≥ 2 pontos.
+  const hasRoute = proj.segments.some(s => s && s.length >= 2);
+  if (!hasRoute) return { ok: false, reason: 'empty_route' };
+
+  try {
+    const bytes = await buildProjectGpkgBytes(proj, projectName);
+    const blob = new Blob([bytes], { type: 'application/geopackage+sqlite3' });
+    const path = `${projectId}.gpkg`;
+
+    const { error } = await sb.storage
+      .from(GPKG_STORAGE_BUCKET)
+      .upload(path, blob, {
+        contentType: 'application/geopackage+sqlite3',
+        upsert: true,
+        cacheControl: '60',
+      });
+    if (error) throw error;
+
+    // Guarda o caminho + tamanho no metadata do projeto para referência
+    try {
+      await sb.from('projects')
+        .update({ gpkg_path: path, gpkg_size_bytes: bytes.byteLength, gpkg_updated_at: new Date().toISOString() })
+        .eq('id', projectId);
+    } catch (_) {
+      // Colunas podem não existir ainda — não bloqueia o upload em si
+    }
+
+    return { ok: true, path, sizeBytes: bytes.byteLength };
+  } catch (e) {
+    console.error('Falha no upload do GPKG:', e);
+    return { ok: false, reason: 'upload_error', error: e };
   }
 }
 
@@ -3604,19 +3768,13 @@ function wireEvents() {
   // Record
   document.getElementById('recordBtn').addEventListener('click', toggleRecording);
 
-  // Long-press on record to stop
-  let recPressTimer = null;
-  const recBtn = document.getElementById('recordBtn');
-  recBtn.addEventListener('touchstart', () => {
-    recPressTimer = setTimeout(() => {
-      if (state.recording) {
-        if (confirm('Finalizar gravação? O tempo será zerado.')) stopRecording();
-      }
-      recPressTimer = null;
-    }, 900);
+  // Botão "Encerrar/Salvar" aparece ao lado de "Retomar" durante a pausa
+  document.getElementById('finishRouteBtn').addEventListener('click', () => {
+    if (!state.recording) return;
+    if (confirm('Encerrar e salvar a rota? O tempo será zerado e a gravação atual será finalizada.')) {
+      stopRecording();
+    }
   });
-  recBtn.addEventListener('touchend', () => { if (recPressTimer) clearTimeout(recPressTimer); });
-  recBtn.addEventListener('touchmove', () => { if (recPressTimer) clearTimeout(recPressTimer); });
 
   // Warning / Obstacle — 2-step placement
   document.getElementById('warningBtn').addEventListener('click', toggleObstaclePlacement);
