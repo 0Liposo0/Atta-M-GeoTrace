@@ -1039,12 +1039,6 @@
       <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
     </svg>
   </button>
-  <button class="icon-btn" id="settingsBtn" aria-label="Configurações">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <circle cx="12" cy="12" r="3"/>
-      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-    </svg>
-  </button>
   <button class="icon-btn" id="menuBtn" aria-label="Menu">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/>
@@ -1153,7 +1147,7 @@
     </div>
     <button class="btn-full" id="exportBtn" style="margin-bottom:8px">Exportar Projeto (GeoPackage)</button>
     <button class="btn-full secondary" id="openPerimetersBtn" style="margin-bottom:8px">Gerenciar Perímetros (KMZ)</button>
-    <button class="btn-full secondary" id="openSettingsFromMenuBtn" style="margin-bottom:8px">Configurações (transparência, Kalman)</button>
+    <button class="btn-full secondary" id="openSettingsFromMenuBtn" style="margin-bottom:8px">Configurações</button>
     <button class="btn-full secondary" id="clearWarningsBtn" style="margin-bottom:8px">Limpar Interdições do Projeto</button>
     <button class="btn-full secondary" id="fitRouteBtn" style="margin-bottom:8px">Enquadrar Rota no Mapa</button>
     <button class="btn-full secondary" id="aboutBtn" style="margin-bottom:8px">Diagnóstico &amp; Informações</button>
@@ -1358,6 +1352,7 @@ const state = {
   timerStart: null,
   timerElapsed: 0,
   timerInterval: null,
+  sessionDistance: 0,   // distância acumulada apenas da sessão de gravação atual (zera ao encerrar)
 
   lastRoutePoint: null, // { lat, lng, time } for distance calc
 
@@ -2496,6 +2491,7 @@ function deleteWarning(key, marker) {
 function updateProjectUI() {
   const nameEl = document.getElementById('projectName');
   nameEl.textContent = state.currentProject || 'Nenhum';
+  updateStats();
 }
 
 // ====================== RECORDING ======================
@@ -2514,9 +2510,11 @@ function toggleRecording() {
     // Start
     state.recording = true;
     state.paused = false;
+    state.sessionDistance = 0;
+    state.timerElapsed = 0;
     startNewSegment();
     resetKalman();  // zera filtro para começar limpo
-    state.timerStart = Date.now() - state.timerElapsed * 1000;
+    state.timerStart = Date.now();
     startTimer();
     toast('Gravação iniciada', 'success');
   } else if (!state.paused) {
@@ -2548,6 +2546,7 @@ function stopRecording() {
   resetKalman();
   stopTimer();
   state.timerElapsed = 0;
+  state.sessionDistance = 0;
   updateStats();
   updateRecordButton();
 
@@ -2634,6 +2633,7 @@ function addPointToRoute(lat, lng, accuracy) {
     const d = haversine(state.lastRoutePoint.lat, state.lastRoutePoint.lng, fLat, fLng);
     if (d < 2) return;
     state.projects[state.currentProject].distance += d;
+    state.sessionDistance += d;
   }
 
   state.currentSegment.push({ lat: fLat, lng: fLng, t: now });
@@ -2728,14 +2728,19 @@ function stopTimer() {
 }
 
 function updateStats() {
-  const proj = state.projects[state.currentProject];
-  if (proj) {
-    const d = formatDistance(proj.distance);
-    document.getElementById('statDistance').innerHTML = `${d.val}<span class="stat-unit">${d.unit}</span>`;
+  // Distância e tempo refletem APENAS a sessão de gravação atual (ativa ou pausada).
+  // Quando nada está sendo gravado, limpamos os valores — evita mostrar números
+  // "residuais" ao alternar entre projetos sem uma rota ativa.
+  const distEl = document.getElementById('statDistance');
+  const timeEl = document.getElementById('statTime');
+  if (state.recording) {
+    const d = formatDistance(state.sessionDistance);
+    distEl.innerHTML = `${d.val}<span class="stat-unit">${d.unit}</span>`;
+    timeEl.textContent = formatTime(state.timerElapsed);
   } else {
-    document.getElementById('statDistance').innerHTML = `0<span class="stat-unit">m</span>`;
+    distEl.innerHTML = `—`;
+    timeEl.textContent = `—`;
   }
-  document.getElementById('statTime').textContent = formatTime(state.timerElapsed);
 }
 
 function updateUserBadge() {
@@ -3827,7 +3832,6 @@ function wireEvents() {
     document.getElementById('kalmanValue').textContent = kVal.toFixed(1);
     openModal('settingsModal');
   }
-  document.getElementById('settingsBtn').addEventListener('click', openSettingsModal);
   document.getElementById('openSettingsFromMenuBtn').addEventListener('click', () => {
     closeModal('menuModal');
     openSettingsModal();
