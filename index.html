@@ -2597,7 +2597,9 @@ function stopRecording() {
           const kb = Math.round(res.sizeBytes / 1024);
           toast(`Snapshot GPKG salvo · ${kb} KB`, 'success');
         } else if (res.reason === 'upload_error') {
-          toast('Falha ao salvar snapshot GPKG no Storage', 'warning');
+          // Surface the underlying cause so o usuário saiba o que ajustar
+          // (ex: criar bucket, liberar RLS, permitir MIME, etc).
+          toast(`Falha ao salvar GPKG: ${res.message || 'erro desconhecido'}`, 'warning');
         }
       });
       return;
@@ -3103,13 +3105,15 @@ async function uploadProjectGpkgSnapshot(projectName) {
 
   try {
     const bytes = await buildProjectGpkgBytes(proj, projectName);
-    const blob = new Blob([bytes], { type: 'application/geopackage+sqlite3' });
+    // MIME "application/octet-stream" é universalmente aceito por buckets Supabase;
+    // usar o MIME específico do GPKG pode falhar quando o bucket tem allowed_mime_types restrito.
+    const blob = new Blob([bytes], { type: 'application/octet-stream' });
     const path = `${projectId}.gpkg`;
 
     const { error } = await sb.storage
       .from(GPKG_STORAGE_BUCKET)
       .upload(path, blob, {
-        contentType: 'application/geopackage+sqlite3',
+        contentType: 'application/octet-stream',
         upsert: true,
         cacheControl: '60',
       });
@@ -3126,8 +3130,11 @@ async function uploadProjectGpkgSnapshot(projectName) {
 
     return { ok: true, path, sizeBytes: bytes.byteLength };
   } catch (e) {
-    console.error('Falha no upload do GPKG:', e);
-    return { ok: false, reason: 'upload_error', error: e };
+    // Extrai a mensagem mais útil do erro Supabase para que o usuário veja a causa real
+    // (ex: "Bucket not found", "new row violates RLS policy", "mime type not allowed").
+    const msg = e?.message || e?.error || e?.statusText || String(e);
+    console.error('Falha no upload do GPKG:', { message: msg, status: e?.status, statusCode: e?.statusCode, error: e });
+    return { ok: false, reason: 'upload_error', error: e, message: msg };
   }
 }
 
