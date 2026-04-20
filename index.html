@@ -131,58 +131,6 @@
     50% { opacity: 0.55; }
   }
 
-  .user-btn-wrap { position: relative; display: flex; flex-shrink: 0; }
-  .user-dropdown {
-    position: absolute;
-    top: calc(100% + 8px);
-    right: 0;
-    background: var(--bg-panel);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-    border: 1px solid var(--border-strong);
-    border-radius: 14px;
-    padding: 10px;
-    min-width: 220px;
-    box-shadow: 0 10px 36px rgba(0,0,0,0.65);
-    z-index: 2500;
-    display: none;
-  }
-  .user-dropdown.show { display: block; }
-  .user-dropdown .user-email {
-    padding: 8px 10px 12px;
-    font-size: 12px;
-    color: var(--text-secondary);
-    border-bottom: 1px solid var(--border);
-    margin-bottom: 8px;
-    word-break: break-all;
-    font-family: var(--font-mono);
-  }
-  .user-dropdown .dropdown-btn {
-    width: 100%;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    color: var(--text-primary);
-    padding: 11px 14px;
-    text-align: left;
-    font-family: var(--font-display);
-    font-size: 13px;
-    font-weight: 600;
-    border-radius: 10px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    transition: all 0.15s;
-  }
-  .user-dropdown .dropdown-btn:active { transform: scale(0.97); }
-  .user-dropdown .dropdown-btn.danger {
-    color: var(--danger);
-    background: rgba(239,68,68,0.08);
-    border-color: rgba(239,68,68,0.3);
-  }
-  .user-dropdown .dropdown-btn.danger:active { background: rgba(239,68,68,0.18); }
-  .user-dropdown .dropdown-btn svg { width: 16px; height: 16px; flex-shrink: 0; }
-
   .project-pill .dot {
     width: 8px; height: 8px;
     border-radius: 50%;
@@ -1060,21 +1008,6 @@
     </div>
   </div>
   <div class="sync-status ok" id="syncStatus" title="Status de sincronização">—</div>
-  <div class="user-btn-wrap" style="position:relative">
-    <button class="icon-btn" id="userBtn" aria-label="Usuário" title="Usuário">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
-        <circle cx="12" cy="7" r="4"/>
-      </svg>
-    </button>
-    <div class="user-dropdown" id="userDropdown">
-      <div class="user-email" id="userEmail">—</div>
-      <button class="dropdown-btn danger" id="signOutBtn" type="button">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-        <span>Sair da conta</span>
-      </button>
-    </div>
-  </div>
   <button class="icon-btn" id="projectsBtn" aria-label="Projetos">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
@@ -1108,14 +1041,6 @@
       <circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="10"/>
       <line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/>
       <line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/>
-    </svg>
-  </button>
-  <button class="float-btn" id="fullscreenBtn" aria-label="Tela cheia" title="Tela cheia">
-    <svg id="fullscreenIconEnter" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M3 9V5a2 2 0 0 1 2-2h4M21 9V5a2 2 0 0 0-2-2h-4M3 15v4a2 2 0 0 0 2 2h4M21 15v4a2 2 0 0 1-2 2h-4"/>
-    </svg>
-    <svg id="fullscreenIconExit" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none">
-      <path d="M9 3H5a2 2 0 0 0-2 2v4M15 3h4a2 2 0 0 1 2 2v4M9 21H5a2 2 0 0 1-2-2v-4M15 21h4a2 2 0 0 0 2-2v-4"/>
     </svg>
   </button>
 </div>
@@ -1199,7 +1124,8 @@
     <button class="btn-full secondary" id="openSettingsFromMenuBtn" style="margin-bottom:8px">Configurações (transparência, Kalman)</button>
     <button class="btn-full secondary" id="clearWarningsBtn" style="margin-bottom:8px">Limpar Interdições do Projeto</button>
     <button class="btn-full secondary" id="fitRouteBtn" style="margin-bottom:8px">Enquadrar Rota no Mapa</button>
-    <button class="btn-full secondary" id="aboutBtn">Diagnóstico &amp; Informações</button>
+    <button class="btn-full secondary" id="aboutBtn" style="margin-bottom:8px">Diagnóstico &amp; Informações</button>
+    <button class="btn-full secondary" id="userMenuBtn">Usuário</button>
     <input type="file" id="kmzFileInput" accept=".kmz,.kml" style="display:none">
   </div>
 </div>
@@ -2186,40 +2112,6 @@ function updateLocateBtn() {
   else btn.classList.remove('active');
 }
 
-// ====================== FULLSCREEN ======================
-function isFullscreen() {
-  return !!(document.fullscreenElement || document.webkitFullscreenElement);
-}
-
-async function toggleFullscreen() {
-  const el = document.documentElement;
-  try {
-    if (!isFullscreen()) {
-      if (el.requestFullscreen) await el.requestFullscreen({ navigationUI: 'hide' });
-      else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
-      else { toast('Tela cheia não suportada neste navegador', 'warning'); return; }
-    } else {
-      if (document.exitFullscreen) await document.exitFullscreen();
-      else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
-    }
-  } catch (e) {
-    console.error('Fullscreen error', e);
-    toast('Não foi possível alternar tela cheia', 'error');
-  }
-}
-
-function updateFullscreenBtn() {
-  const enter = document.getElementById('fullscreenIconEnter');
-  const exit = document.getElementById('fullscreenIconExit');
-  if (!enter || !exit) return;
-  const fs = isFullscreen();
-  enter.style.display = fs ? 'none' : '';
-  exit.style.display  = fs ? '' : 'none';
-  const btn = document.getElementById('fullscreenBtn');
-  if (btn) btn.classList.toggle('active', fs);
-  setTimeout(() => { if (state.map) state.map.invalidateSize(); }, 200);
-}
-
 // ====================== USER MARKER ======================
 function ensureUserMarker() {
   if (!state.position) return;
@@ -3192,6 +3084,7 @@ function renderPerimeter(perimeter) {
     fillColor: '#f5a13d',
     fillOpacity,
     dashArray: '6,4',
+    interactive: false,
   };
 
   perimeter.features.forEach(f => {
@@ -3199,14 +3092,13 @@ function renderPerimeter(perimeter) {
     if (f.type === 'polygon') {
       leafletObj = L.polygon([f.outer, ...(f.holes || [])], baseStyle);
     } else if (f.type === 'polyline') {
-      leafletObj = L.polyline(f.coords, { color: baseStyle.color, weight: 3, opacity: 0.85, dashArray: '6,4' });
+      leafletObj = L.polyline(f.coords, { color: baseStyle.color, weight: 3, opacity: 0.85, dashArray: '6,4', interactive: false });
     } else if (f.type === 'point') {
       leafletObj = L.circleMarker([f.lat, f.lng], {
-        radius: 6, color: '#f5a13d', fillColor: '#f5a13d', fillOpacity: 0.6, weight: 2,
+        radius: 6, color: '#f5a13d', fillColor: '#f5a13d', fillOpacity: 0.6, weight: 2, interactive: false,
       });
     }
     if (leafletObj) {
-      if (f.popup) leafletObj.bindPopup(f.popup);
       layer.addLayer(leafletObj);
     }
   });
@@ -3684,17 +3576,17 @@ function wireEvents() {
     if (e.key === 'Enter') document.getElementById('passwordInput').focus();
   });
 
-  // User dropdown toggle
-  document.getElementById('userBtn').addEventListener('click', (e) => {
-    e.stopPropagation();
-    const dd = document.getElementById('userDropdown');
-    dd.classList.toggle('show');
-    if (dd.classList.contains('show')) {
-      document.getElementById('userEmail').textContent = currentUser ? currentUser.email : '—';
+  // Usuário (dentro do menu de opções)
+  document.getElementById('userMenuBtn').addEventListener('click', () => {
+    const email = currentUser ? currentUser.email : null;
+    if (!email) {
+      toast('Nenhum usuário autenticado', 'warning');
+      return;
     }
-  });
-  document.addEventListener('click', () => {
-    document.getElementById('userDropdown').classList.remove('show');
+    if (confirm(`Logado como:\n${email}\n\nDeseja sair da conta?`)) {
+      closeModal('menuModal');
+      signOut();
+    }
   });
 
   // Zoom
@@ -3707,23 +3599,6 @@ function wireEvents() {
     updateLocateBtn();
     if (state.position) state.map.setView([state.position.lat, state.position.lng], Math.max(state.map.getZoom(), 17));
   });
-
-  // Fullscreen
-  const fsBtn = document.getElementById('fullscreenBtn');
-  if (fsBtn) {
-    fsBtn.addEventListener('click', toggleFullscreen);
-    document.addEventListener('fullscreenchange', updateFullscreenBtn);
-    document.addEventListener('webkitfullscreenchange', updateFullscreenBtn);
-  }
-
-  // Sair da conta (dropdown do usuário)
-  const signOutBtn = document.getElementById('signOutBtn');
-  if (signOutBtn) {
-    signOutBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      if (confirm('Sair da conta?')) signOut();
-    });
-  }
 
   // Compass / Nav mode
   // Record
