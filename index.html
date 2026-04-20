@@ -131,7 +131,7 @@
     50% { opacity: 0.55; }
   }
 
-  .user-btn { position: relative; }
+  .user-btn-wrap { position: relative; display: flex; flex-shrink: 0; }
   .user-dropdown {
     position: absolute;
     top: calc(100% + 8px);
@@ -139,53 +139,49 @@
     background: var(--bg-panel);
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 8px;
-    min-width: 200px;
-    box-shadow: 0 8px 30px rgba(0,0,0,0.6);
+    border: 1px solid var(--border-strong);
+    border-radius: 14px;
+    padding: 10px;
+    min-width: 220px;
+    box-shadow: 0 10px 36px rgba(0,0,0,0.65);
     z-index: 2500;
     display: none;
   }
   .user-dropdown.show { display: block; }
   .user-dropdown .user-email {
-    padding: 10px 12px;
+    padding: 8px 10px 12px;
     font-size: 12px;
-    color: var(--text-muted);
+    color: var(--text-secondary);
     border-bottom: 1px solid var(--border);
-    margin-bottom: 6px;
+    margin-bottom: 8px;
     word-break: break-all;
+    font-family: var(--font-mono);
   }
-  .user-dropdown button {
+  .user-dropdown .dropdown-btn {
     width: 100%;
-    background: transparent;
-    border: none;
+    background: var(--surface);
+    border: 1px solid var(--border);
     color: var(--text-primary);
-    padding: 10px 12px;
+    padding: 11px 14px;
     text-align: left;
+    font-family: var(--font-display);
     font-size: 13px;
-    border-radius: 8px;
+    font-weight: 600;
+    border-radius: 10px;
     cursor: pointer;
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
+    transition: all 0.15s;
   }
-  .user-dropdown button:hover { background: rgba(255,255,255,0.05); }
-  .user-dropdown button.danger { color: #ef4444; }
-
-  .edit-lock-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    font-size: 10px;
-    font-weight: 600;
-    color: #f5a13d;
-    background: rgba(245,161,61,0.12);
-    border: 1px solid rgba(245,161,61,0.3);
-    border-radius: 6px;
-    padding: 2px 6px;
-    margin-left: 8px;
+  .user-dropdown .dropdown-btn:active { transform: scale(0.97); }
+  .user-dropdown .dropdown-btn.danger {
+    color: var(--danger);
+    background: rgba(239,68,68,0.08);
+    border-color: rgba(239,68,68,0.3);
   }
+  .user-dropdown .dropdown-btn.danger:active { background: rgba(239,68,68,0.18); }
+  .user-dropdown .dropdown-btn svg { width: 16px; height: 16px; flex-shrink: 0; }
 
   .project-pill .dot {
     width: 8px; height: 8px;
@@ -305,33 +301,10 @@
   }
   .zoom-group .float-btn:first-child { border-bottom: 1px solid var(--border); }
 
-  /* ============ TELEMETRY HUD ============ */
-  .telemetry {
-    position: fixed;
-    top: calc(var(--safe-top) + 72px);
-    left: 14px;
-    z-index: 400;
-    background: var(--bg-panel);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 8px 12px;
-    font-family: var(--font-mono);
-    font-size: 10px;
-    color: var(--text-secondary);
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-    box-shadow: 0 4px 20px rgba(0,0,0,0.4);
-    min-width: 130px;
-  }
-  .telemetry .row { display: flex; justify-content: space-between; gap: 10px; }
-  .telemetry .label { color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; font-size: 9px; }
-  .telemetry .value { color: var(--text-primary); font-weight: 500; }
-  .telemetry .value.good { color: var(--success); }
-  .telemetry .value.warn { color: var(--warning); }
-  .telemetry .value.bad { color: var(--danger); }
+  /* ============ GPS VALUE COLORS (no card de stats) ============ */
+  .stat-value.good { color: var(--success); }
+  .stat-value.warn { color: var(--warning); }
+  .stat-value.bad { color: var(--danger); }
 
   /* ============ BOTTOM PANEL ============ */
   .bottom-panel {
@@ -343,51 +316,53 @@
     backdrop-filter: blur(24px);
     -webkit-backdrop-filter: blur(24px);
     border-top: 1px solid var(--border);
-    border-radius: 24px 24px 0 0;
-    padding: 10px 14px calc(14px + var(--safe-bottom));
+    border-radius: 22px 22px 0 0;
+    padding: 6px 12px calc(10px + var(--safe-bottom));
     box-shadow: 0 -10px 40px rgba(0,0,0,0.5);
   }
 
   .drag-handle {
-    width: 40px; height: 4px;
+    width: 36px; height: 3px;
     background: var(--border-strong);
     border-radius: 2px;
-    margin: 0 auto 10px;
+    margin: 0 auto 6px;
   }
 
   .panel-stats {
     display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 8px;
-    margin-bottom: 12px;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+    margin-bottom: 8px;
   }
 
   .stat-card {
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 8px 10px;
+    border-radius: 10px;
+    padding: 5px 6px;
     text-align: center;
+    min-width: 0;
   }
   .stat-card .stat-label {
-    font-size: 9px;
+    font-size: 8px;
     text-transform: uppercase;
-    letter-spacing: 1px;
+    letter-spacing: 0.8px;
     color: var(--text-muted);
     font-weight: 600;
-    margin-bottom: 2px;
+    margin-bottom: 1px;
   }
   .stat-card .stat-value {
     font-family: var(--font-mono);
-    font-size: 15px;
+    font-size: 13px;
     font-weight: 700;
     color: var(--text-primary);
+    line-height: 1.1;
   }
   .stat-card .stat-unit {
-    font-size: 10px;
+    font-size: 9px;
     color: var(--text-secondary);
     font-weight: 400;
-    margin-left: 2px;
+    margin-left: 1px;
   }
 
   .action-row {
@@ -397,15 +372,15 @@
 
   .primary-action {
     flex: 1;
-    height: 56px;
+    height: 48px;
     background: linear-gradient(135deg, var(--accent) 0%, #2563eb 100%);
     border: none;
-    border-radius: 16px;
+    border-radius: 14px;
     color: white;
     font-family: var(--font-display);
-    font-size: 15px;
+    font-size: 14px;
     font-weight: 700;
-    letter-spacing: 0.5px;
+    letter-spacing: 0.4px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -427,10 +402,10 @@
   .primary-action svg { width: 22px; height: 22px; }
 
   .secondary-action {
-    width: 56px; height: 56px;
+    width: 48px; height: 48px;
     background: var(--surface-elevated);
     border: 1px solid var(--border-strong);
-    border-radius: 16px;
+    border-radius: 14px;
     color: var(--text-primary);
     display: flex;
     align-items: center;
@@ -1035,11 +1010,9 @@
   .leaflet-container { background: #1a1f2e !important; }
   .leaflet-bar { display: none !important; }
 
-  /* Hide telemetry in landscape small */
   @media (max-height: 500px) and (orientation: landscape) {
-    .telemetry { font-size: 9px; padding: 6px 8px; }
-    .panel-stats { display: none; }
-    .bottom-panel { padding-top: 8px; }
+    .panel-stats { margin-bottom: 6px; }
+    .bottom-panel { padding-top: 6px; }
   }
 </style>
 </head>
@@ -1087,16 +1060,21 @@
     </div>
   </div>
   <div class="sync-status ok" id="syncStatus" title="Status de sincronização">—</div>
-  <button class="icon-btn user-btn" id="userBtn" aria-label="Usuário" title="Usuário" style="position:relative">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
-      <circle cx="12" cy="7" r="4"/>
-    </svg>
+  <div class="user-btn-wrap" style="position:relative">
+    <button class="icon-btn" id="userBtn" aria-label="Usuário" title="Usuário">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+        <circle cx="12" cy="7" r="4"/>
+      </svg>
+    </button>
     <div class="user-dropdown" id="userDropdown">
       <div class="user-email" id="userEmail">—</div>
-      <button onclick="signOut();" class="danger">🚪 Sair da conta</button>
+      <button class="dropdown-btn danger" id="signOutBtn" type="button">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        <span>Sair da conta</span>
+      </button>
     </div>
-  </button>
+  </div>
   <button class="icon-btn" id="projectsBtn" aria-label="Projetos">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
@@ -1113,11 +1091,6 @@
       <circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/>
     </svg>
   </button>
-</div>
-
-<!-- TELEMETRY -->
-<div class="telemetry" id="telemetry">
-  <div class="row"><span class="label">GPS</span><span class="value" id="telGps">—</span></div>
 </div>
 
 <!-- FLOATING CONTROLS -->
@@ -1137,6 +1110,14 @@
       <line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/>
     </svg>
   </button>
+  <button class="float-btn" id="fullscreenBtn" aria-label="Tela cheia" title="Tela cheia">
+    <svg id="fullscreenIconEnter" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M3 9V5a2 2 0 0 1 2-2h4M21 9V5a2 2 0 0 0-2-2h-4M3 15v4a2 2 0 0 0 2 2h4M21 15v4a2 2 0 0 1-2 2h-4"/>
+    </svg>
+    <svg id="fullscreenIconExit" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none">
+      <path d="M9 3H5a2 2 0 0 0-2 2v4M15 3h4a2 2 0 0 1 2 2v4M9 21H5a2 2 0 0 1-2-2v-4M15 21h4a2 2 0 0 0 2-2v-4"/>
+    </svg>
+  </button>
 </div>
 
 <!-- BOTTOM PANEL -->
@@ -1150,6 +1131,10 @@
     <div class="stat-card">
       <div class="stat-label">Tempo</div>
       <div class="stat-value" id="statTime">00:00</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">GPS</div>
+      <div class="stat-value" id="telGps">—</div>
     </div>
   </div>
   <div class="action-row">
@@ -1209,11 +1194,12 @@
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
       </button>
     </div>
-    <button class="btn-full" id="exportBtn" style="margin-bottom:8px">📦 Exportar Projeto (GeoPackage)</button>
-    <button class="btn-full secondary" id="openPerimetersBtn" style="margin-bottom:8px">🗺️ Gerenciar Perímetros (KMZ)</button>
+    <button class="btn-full" id="exportBtn" style="margin-bottom:8px">Exportar Projeto (GeoPackage)</button>
+    <button class="btn-full secondary" id="openPerimetersBtn" style="margin-bottom:8px">Gerenciar Perímetros (KMZ)</button>
+    <button class="btn-full secondary" id="openSettingsFromMenuBtn" style="margin-bottom:8px">Configurações (transparência, Kalman)</button>
     <button class="btn-full secondary" id="clearWarningsBtn" style="margin-bottom:8px">Limpar Interdições do Projeto</button>
     <button class="btn-full secondary" id="fitRouteBtn" style="margin-bottom:8px">Enquadrar Rota no Mapa</button>
-    <button class="btn-full secondary" id="aboutBtn">📊 Diagnóstico & Informações</button>
+    <button class="btn-full secondary" id="aboutBtn">Diagnóstico &amp; Informações</button>
     <input type="file" id="kmzFileInput" accept=".kmz,.kml" style="display:none">
   </div>
 </div>
@@ -1740,8 +1726,6 @@ const sync = {
           distance: p.total_distance_m || 0,
           createdAt: p.created_at,
           createdBy: p.created_by,
-          editingBy: p.editing_by_name,
-          editingUntil: p.editing_until,
         };
         idByName[p.name] = p.id;
       }
@@ -1841,29 +1825,22 @@ const sync = {
         }
       }
     } else if (ev === 'UPDATE') {
-      // Atualização de lock ou rename
+      // Atualização de rename ou metadados
       const existingName = Object.keys(this.projectIdByName).find(
         n => this.projectIdByName[n] === row.id
       );
       if (existingName) {
         const proj = state.projects[existingName];
-        if (proj) {
-          proj.editingBy = row.editing_by_name;
-          proj.editingUntil = row.editing_until;
-
-          // Rename?
-          if (row.name !== existingName) {
-            state.projects[row.name] = proj;
-            delete state.projects[existingName];
-            delete this.projectIdByName[existingName];
-            this.projectIdByName[row.name] = row.id;
-            if (state.currentProject === existingName) {
-              state.currentProject = row.name;
-            }
-            renderProjectList();
-            updateProjectUI();
+        if (proj && row.name !== existingName) {
+          state.projects[row.name] = proj;
+          delete state.projects[existingName];
+          delete this.projectIdByName[existingName];
+          this.projectIdByName[row.name] = row.id;
+          if (state.currentProject === existingName) {
+            state.currentProject = row.name;
           }
-          updateEditLockUI(existingName);
+          renderProjectList();
+          updateProjectUI();
         }
       }
     } else if (ev === 'DELETE') {
@@ -2209,6 +2186,40 @@ function updateLocateBtn() {
   else btn.classList.remove('active');
 }
 
+// ====================== FULLSCREEN ======================
+function isFullscreen() {
+  return !!(document.fullscreenElement || document.webkitFullscreenElement);
+}
+
+async function toggleFullscreen() {
+  const el = document.documentElement;
+  try {
+    if (!isFullscreen()) {
+      if (el.requestFullscreen) await el.requestFullscreen({ navigationUI: 'hide' });
+      else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+      else { toast('Tela cheia não suportada neste navegador', 'warning'); return; }
+    } else {
+      if (document.exitFullscreen) await document.exitFullscreen();
+      else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+    }
+  } catch (e) {
+    console.error('Fullscreen error', e);
+    toast('Não foi possível alternar tela cheia', 'error');
+  }
+}
+
+function updateFullscreenBtn() {
+  const enter = document.getElementById('fullscreenIconEnter');
+  const exit = document.getElementById('fullscreenIconExit');
+  if (!enter || !exit) return;
+  const fs = isFullscreen();
+  enter.style.display = fs ? 'none' : '';
+  exit.style.display  = fs ? '' : 'none';
+  const btn = document.getElementById('fullscreenBtn');
+  if (btn) btn.classList.toggle('active', fs);
+  setTimeout(() => { if (state.map) state.map.invalidateSize(); }, 200);
+}
+
 // ====================== USER MARKER ======================
 function ensureUserMarker() {
   if (!state.position) return;
@@ -2283,17 +2294,18 @@ function onGPSError(err) {
   else if (err.code === 2) toast('GPS indisponível — verifique configurações', 'error');
   else if (err.code === 3) toast('GPS timeout — buscando sinal...', 'warning');
   const tg = document.getElementById('telGps');
-  tg.textContent = 'ERRO';
-  tg.className = 'value bad';
+  if (tg) { tg.textContent = 'ERRO'; tg.className = 'stat-value bad'; }
 }
 
 function updateTelemetry() {
   const { accuracy } = state.position;
   const tg = document.getElementById('telGps');
+  if (!tg) return;
   tg.textContent = `±${Math.round(accuracy)}m`;
-  if (accuracy <= 10) tg.className = 'value good';
-  else if (accuracy <= 30) tg.className = 'value warn';
-  else tg.className = 'value bad';
+  tg.className = 'stat-value';
+  if (accuracy <= 10) tg.classList.add('good');
+  else if (accuracy <= 30) tg.classList.add('warn');
+  else tg.classList.add('bad');
 }
 
 // ====================== ORIENTATION (só para seta do usuário) ======================
@@ -2734,13 +2746,6 @@ function updateStats() {
 function updateUserBadge() {
   // Atualiza o indicador de sync
   sync.updateStatusUI();
-}
-
-function updateEditLockUI(projectName) {
-  // Se o projeto atual está sendo editado por outro usuário, mostrar lock
-  // (visível na lista de projetos e no header)
-  // Não precisa de UI dedicada agora — basta que o realtime atualize o state
-  // e o toast notifique. Para uma v2, podemos adicionar badge no pill.
 }
 
 // ====================== WARNINGS ======================
@@ -3703,6 +3708,23 @@ function wireEvents() {
     if (state.position) state.map.setView([state.position.lat, state.position.lng], Math.max(state.map.getZoom(), 17));
   });
 
+  // Fullscreen
+  const fsBtn = document.getElementById('fullscreenBtn');
+  if (fsBtn) {
+    fsBtn.addEventListener('click', toggleFullscreen);
+    document.addEventListener('fullscreenchange', updateFullscreenBtn);
+    document.addEventListener('webkitfullscreenchange', updateFullscreenBtn);
+  }
+
+  // Sair da conta (dropdown do usuário)
+  const signOutBtn = document.getElementById('signOutBtn');
+  if (signOutBtn) {
+    signOutBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (confirm('Sair da conta?')) signOut();
+    });
+  }
+
   // Compass / Nav mode
   // Record
   document.getElementById('recordBtn').addEventListener('click', toggleRecording);
@@ -3761,18 +3783,21 @@ function wireEvents() {
   document.getElementById('closeMenu').addEventListener('click', () => closeModal('menuModal'));
 
   // Settings
-  document.getElementById('settingsBtn').addEventListener('click', () => {
-    // Sincronizar controles com state atual antes de abrir
+  function openSettingsModal() {
     document.getElementById('toggleAskDescription').checked = state.settings.askDescription;
     document.getElementById('toggleFollow').checked = state.settings.followUser;
     const sliderVal = Math.round(state.settings.kmzFillOpacity * 100);
     document.getElementById('sliderOpacity').value = sliderVal;
     document.getElementById('opacityValue').textContent = sliderVal + '%';
-    // Slider Kalman
     const kVal = state.settings.kalmanNoise || 3.0;
     document.getElementById('sliderKalman').value = kVal;
     document.getElementById('kalmanValue').textContent = kVal.toFixed(1);
     openModal('settingsModal');
+  }
+  document.getElementById('settingsBtn').addEventListener('click', openSettingsModal);
+  document.getElementById('openSettingsFromMenuBtn').addEventListener('click', () => {
+    closeModal('menuModal');
+    openSettingsModal();
   });
   document.getElementById('closeSettings').addEventListener('click', () => closeModal('settingsModal'));
 
