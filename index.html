@@ -1,0 +1,3876 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0a0e1a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Atta'M GeoTrace — Mapeamento de Campo</title>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/sql-wasm.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+
+<style>
+  :root {
+    --bg-deep: #0a0e1a;
+    --bg-panel: rgba(12, 18, 32, 0.92);
+    --bg-panel-solid: #0c1220;
+    --surface: rgba(22, 30, 48, 0.85);
+    --surface-elevated: rgba(30, 42, 66, 0.95);
+    --border: rgba(255, 255, 255, 0.08);
+    --border-strong: rgba(255, 255, 255, 0.16);
+    --text-primary: #f0f4fc;
+    --text-secondary: #8b96ad;
+    --text-muted: #5a6478;
+    --brand-navy: #2d3569;
+    --brand-navy-light: #4a5499;
+    --brand-orange: #f5a13d;
+    --brand-orange-light: #ffb86b;
+    --accent: #4a5499;
+    --accent-bright: #6d7ac4;
+    --accent-glow: rgba(109, 122, 196, 0.45);
+    --danger: #ef4444;
+    --warning: #f5a13d;
+    --success: #10b981;
+    --recording: #ef4444;
+    --font-display: 'Space Grotesk', -apple-system, sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+  html, body {
+    height: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
+    touch-action: manipulation;
+    font-family: var(--font-display);
+    background: var(--bg-deep);
+    color: var(--text-primary);
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  #map {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    bottom: 0;
+    z-index: 1;
+    background: #1a1f2e;
+  }
+
+  /* Dark tiles filter */
+  .leaflet-tile-pane {
+    filter: brightness(0.75) invert(1) contrast(1.1) hue-rotate(200deg) saturate(0.35) brightness(0.95);
+  }
+
+  .leaflet-control-attribution {
+    background: rgba(10, 14, 26, 0.7) !important;
+    color: var(--text-muted) !important;
+    font-size: 9px !important;
+    padding: 2px 6px !important;
+  }
+  .leaflet-control-attribution a { color: var(--text-secondary) !important; }
+
+  /* ============ TOP BAR ============ */
+  .top-bar {
+    position: fixed;
+    top: var(--safe-top);
+    left: 0; right: 0;
+    z-index: 500;
+    padding: 12px 14px;
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    pointer-events: none;
+  }
+  .top-bar > * { pointer-events: auto; }
+
+  .project-pill {
+    flex: 1;
+    background: var(--bg-panel);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 10px 14px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+  }
+
+  .sync-status {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    padding: 6px 10px;
+    border-radius: 10px;
+    white-space: nowrap;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    flex-shrink: 0;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+  }
+  .sync-status.ok      { color: #10b981; border-color: rgba(16,185,129,0.3); }
+  .sync-status.syncing { color: #f5a13d; border-color: rgba(245,161,61,0.4); animation: pulse-sync 1.5s infinite; }
+  .sync-status.pending { color: #facc15; border-color: rgba(250,204,21,0.3); }
+  .sync-status.offline { color: #ef4444; border-color: rgba(239,68,68,0.3); }
+  @keyframes pulse-sync {
+    0%,100% { opacity: 1; }
+    50% { opacity: 0.55; }
+  }
+
+  .user-btn { position: relative; }
+  .user-dropdown {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    background: var(--bg-panel);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 8px;
+    min-width: 200px;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.6);
+    z-index: 2500;
+    display: none;
+  }
+  .user-dropdown.show { display: block; }
+  .user-dropdown .user-email {
+    padding: 10px 12px;
+    font-size: 12px;
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 6px;
+    word-break: break-all;
+  }
+  .user-dropdown button {
+    width: 100%;
+    background: transparent;
+    border: none;
+    color: var(--text-primary);
+    padding: 10px 12px;
+    text-align: left;
+    font-size: 13px;
+    border-radius: 8px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .user-dropdown button:hover { background: rgba(255,255,255,0.05); }
+  .user-dropdown button.danger { color: #ef4444; }
+
+  .edit-lock-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 10px;
+    font-weight: 600;
+    color: #f5a13d;
+    background: rgba(245,161,61,0.12);
+    border: 1px solid rgba(245,161,61,0.3);
+    border-radius: 6px;
+    padding: 2px 6px;
+    margin-left: 8px;
+  }
+
+  .project-pill .dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--text-muted);
+    flex-shrink: 0;
+    transition: all 0.3s;
+  }
+  .project-pill.recording .dot {
+    background: var(--recording);
+    box-shadow: 0 0 0 0 var(--recording);
+    animation: pulse-rec 1.5s infinite;
+  }
+  @keyframes pulse-rec {
+    0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+    70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+  }
+
+  .project-pill .project-info {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .project-pill .project-label {
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--text-muted);
+    font-weight: 600;
+  }
+  .project-pill .project-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .icon-btn {
+    width: 44px; height: 44px;
+    background: var(--bg-panel);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    color: var(--text-primary);
+    flex-shrink: 0;
+    transition: all 0.15s;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+  }
+  .icon-btn:active { transform: scale(0.92); background: var(--surface-elevated); }
+  .icon-btn svg { width: 20px; height: 20px; }
+
+  /* ============ FLOATING CONTROLS (RIGHT SIDE) ============ */
+  .float-controls {
+    position: fixed;
+    right: 14px;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 400;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .float-btn {
+    width: 50px; height: 50px;
+    background: var(--bg-panel);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    color: var(--text-primary);
+    transition: all 0.15s;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.5);
+    position: relative;
+  }
+  .float-btn:active { transform: scale(0.9); }
+  .float-btn svg { width: 22px; height: 22px; }
+  .float-btn.active {
+    background: var(--accent);
+    border-color: var(--accent-bright);
+    color: white;
+    box-shadow: 0 0 20px var(--accent-glow), 0 4px 24px rgba(0,0,0,0.5);
+  }
+
+  .zoom-group {
+    background: var(--bg-panel);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.5);
+  }
+  .zoom-group .float-btn {
+    width: 50px; height: 44px;
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+    font-size: 22px;
+    font-weight: 300;
+  }
+  .zoom-group .float-btn:first-child { border-bottom: 1px solid var(--border); }
+
+  /* ============ TELEMETRY HUD ============ */
+  .telemetry {
+    position: fixed;
+    top: calc(var(--safe-top) + 72px);
+    left: 14px;
+    z-index: 400;
+    background: var(--bg-panel);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 8px 12px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-secondary);
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+    min-width: 130px;
+  }
+  .telemetry .row { display: flex; justify-content: space-between; gap: 10px; }
+  .telemetry .label { color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; font-size: 9px; }
+  .telemetry .value { color: var(--text-primary); font-weight: 500; }
+  .telemetry .value.good { color: var(--success); }
+  .telemetry .value.warn { color: var(--warning); }
+  .telemetry .value.bad { color: var(--danger); }
+
+  /* ============ BOTTOM PANEL ============ */
+  .bottom-panel {
+    position: fixed;
+    left: 0; right: 0;
+    bottom: 0;
+    z-index: 500;
+    background: var(--bg-panel);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border-top: 1px solid var(--border);
+    border-radius: 24px 24px 0 0;
+    padding: 10px 14px calc(14px + var(--safe-bottom));
+    box-shadow: 0 -10px 40px rgba(0,0,0,0.5);
+  }
+
+  .drag-handle {
+    width: 40px; height: 4px;
+    background: var(--border-strong);
+    border-radius: 2px;
+    margin: 0 auto 10px;
+  }
+
+  .panel-stats {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+
+  .stat-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 8px 10px;
+    text-align: center;
+  }
+  .stat-card .stat-label {
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-muted);
+    font-weight: 600;
+    margin-bottom: 2px;
+  }
+  .stat-card .stat-value {
+    font-family: var(--font-mono);
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text-primary);
+  }
+  .stat-card .stat-unit {
+    font-size: 10px;
+    color: var(--text-secondary);
+    font-weight: 400;
+    margin-left: 2px;
+  }
+
+  .action-row {
+    display: flex;
+    gap: 8px;
+  }
+
+  .primary-action {
+    flex: 1;
+    height: 56px;
+    background: linear-gradient(135deg, var(--accent) 0%, #2563eb 100%);
+    border: none;
+    border-radius: 16px;
+    color: white;
+    font-family: var(--font-display);
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    cursor: pointer;
+    transition: all 0.15s;
+    box-shadow: 0 4px 16px var(--accent-glow);
+  }
+  .primary-action:active { transform: scale(0.97); }
+  .primary-action.recording {
+    background: linear-gradient(135deg, var(--danger) 0%, #dc2626 100%);
+    box-shadow: 0 4px 16px rgba(239, 68, 68, 0.4);
+  }
+  .primary-action.paused {
+    background: linear-gradient(135deg, var(--warning) 0%, #d97706 100%);
+    box-shadow: 0 4px 16px rgba(251, 191, 36, 0.4);
+    color: #1a1200;
+  }
+  .primary-action svg { width: 22px; height: 22px; }
+
+  .secondary-action {
+    width: 56px; height: 56px;
+    background: var(--surface-elevated);
+    border: 1px solid var(--border-strong);
+    border-radius: 16px;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.15s;
+    flex-shrink: 0;
+  }
+  .secondary-action:active { transform: scale(0.9); }
+  .secondary-action svg { width: 24px; height: 24px; }
+  .secondary-action.warning-btn { color: var(--warning); border-color: rgba(251, 191, 36, 0.3); }
+  .secondary-action.warning-btn:active { background: rgba(251, 191, 36, 0.15); }
+
+  /* ============ MODAL ============ */
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.7);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    z-index: 1000;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+  .modal-backdrop.active { display: flex; }
+
+  .modal {
+    background: var(--bg-panel-solid);
+    border: 1px solid var(--border-strong);
+    border-radius: 24px;
+    padding: 24px;
+    width: 100%;
+    max-width: 400px;
+    max-height: 85vh;
+    overflow-y: auto;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+  }
+  .modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+  }
+  .modal-title {
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: -0.3px;
+  }
+  .modal-close {
+    width: 32px; height: 32px;
+    background: var(--surface);
+    border: none;
+    border-radius: 10px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .form-group { margin-bottom: 16px; }
+  .form-label {
+    display: block;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--text-muted);
+    font-weight: 600;
+    margin-bottom: 6px;
+  }
+  .form-input {
+    width: 100%;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 16px;
+    color: var(--text-primary);
+    font-family: var(--font-display);
+    font-size: 15px;
+    font-weight: 500;
+    outline: none;
+    transition: border 0.15s;
+  }
+  .form-input:focus { border-color: var(--accent); }
+
+  .btn-full {
+    width: 100%;
+    height: 52px;
+    background: linear-gradient(135deg, var(--accent) 0%, #2563eb 100%);
+    border: none;
+    border-radius: 14px;
+    color: white;
+    font-family: var(--font-display);
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    margin-top: 8px;
+  }
+  .btn-full:active { transform: scale(0.98); }
+  .btn-full.secondary {
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
+    color: var(--text-primary);
+  }
+
+  .project-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 12px;
+  }
+  .project-item {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 12px 14px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+  }
+  .project-item:active { background: var(--surface-elevated); }
+  .project-item .pname { font-weight: 600; font-size: 14px; }
+  .project-item .pmeta { font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); margin-top: 2px; }
+  .project-item-actions { display: flex; gap: 6px; }
+  .project-item-btn {
+    width: 32px; height: 32px;
+    background: var(--bg-panel-solid);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+  }
+  .project-item-btn.danger { color: var(--danger); }
+
+  /* ============ SETTINGS ============ */
+  .settings-group { margin-bottom: 20px; }
+  .settings-group:last-child { margin-bottom: 0; }
+  .settings-group-title {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--text-muted);
+    font-weight: 700;
+    margin-bottom: 10px;
+    padding-left: 2px;
+  }
+  .settings-row {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 14px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 8px;
+  }
+  .settings-row:last-child { margin-bottom: 0; }
+  .settings-row-text { flex: 1; min-width: 0; }
+  .settings-label {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 3px;
+  }
+  .settings-desc {
+    font-size: 11px;
+    color: var(--text-muted);
+    line-height: 1.4;
+  }
+  .toggle {
+    position: relative;
+    display: inline-block;
+    width: 48px;
+    height: 28px;
+    flex-shrink: 0;
+  }
+  .toggle input { opacity: 0; width: 0; height: 0; }
+  .toggle-slider {
+    position: absolute;
+    cursor: pointer;
+    inset: 0;
+    background: var(--bg-panel-solid);
+    border: 1px solid var(--border-strong);
+    border-radius: 28px;
+    transition: all 0.2s;
+  }
+  .toggle-slider::before {
+    content: '';
+    position: absolute;
+    height: 20px; width: 20px;
+    left: 3px; top: 50%;
+    transform: translateY(-50%);
+    background: var(--text-secondary);
+    border-radius: 50%;
+    transition: all 0.2s;
+  }
+  .toggle input:checked + .toggle-slider {
+    background: var(--accent);
+    border-color: var(--accent-bright);
+  }
+  .toggle input:checked + .toggle-slider::before {
+    transform: translate(20px, -50%);
+    background: white;
+  }
+
+  /* ============ DIAGNOSTIC PANEL ============ */
+  .diag-section {
+    margin-bottom: 18px;
+  }
+  .diag-section-title {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--brand-orange);
+    font-weight: 700;
+    margin-bottom: 8px;
+    padding-left: 2px;
+  }
+  .diag-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 12px 14px;
+    margin-bottom: 6px;
+  }
+  .diag-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    padding: 3px 0;
+    font-size: 12px;
+  }
+  .diag-row-label {
+    color: var(--text-secondary);
+    flex: 1;
+  }
+  .diag-row-value {
+    font-family: var(--font-mono);
+    color: var(--text-primary);
+    font-weight: 600;
+    font-size: 12px;
+  }
+  .diag-row-value.good { color: var(--success); }
+  .diag-row-value.warn { color: var(--warning); }
+  .diag-row-value.bad { color: var(--danger); }
+
+  .diag-bar-container {
+    margin-top: 8px;
+    background: var(--bg-panel-solid);
+    height: 8px;
+    border-radius: 4px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+  }
+  .diag-bar-fill {
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.3s, background 0.3s;
+  }
+  .diag-bar-fill.good { background: var(--success); }
+  .diag-bar-fill.warn { background: var(--warning); }
+  .diag-bar-fill.bad { background: var(--danger); }
+
+  .diag-note {
+    font-size: 11px;
+    color: var(--text-muted);
+    line-height: 1.5;
+    padding: 10px 12px;
+    background: rgba(59, 130, 246, 0.06);
+    border-left: 3px solid var(--accent);
+    border-radius: 6px;
+    margin-top: 6px;
+  }
+  .diag-note strong { color: var(--accent-bright); }
+
+  .diag-footer {
+    margin-top: 16px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border);
+    text-align: center;
+    font-size: 11px;
+    color: var(--text-muted);
+    line-height: 1.5;
+  }
+  .diag-footer strong { color: var(--text-secondary); }
+
+  /* ============ WARNING POPUP ============ */
+  .leaflet-popup-content-wrapper {
+    background: var(--bg-panel-solid) !important;
+    color: var(--text-primary) !important;
+    border: 1px solid var(--border-strong);
+    border-radius: 14px !important;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.6) !important;
+  }
+  .leaflet-popup-tip { background: var(--bg-panel-solid) !important; }
+  .leaflet-popup-content { margin: 12px 14px !important; font-family: var(--font-display) !important; }
+  .leaflet-container a.leaflet-popup-close-button { color: var(--text-secondary) !important; }
+
+  .warning-popup { min-width: 180px; }
+  .warning-popup-note {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-primary);
+    margin-bottom: 10px;
+    line-height: 1.4;
+    word-break: break-word;
+  }
+  .warning-popup-empty {
+    font-size: 12px;
+    color: var(--text-muted);
+    font-style: italic;
+    margin-bottom: 10px;
+  }
+  .warning-popup-delete {
+    width: 100%;
+    background: rgba(239, 68, 68, 0.1);
+    color: var(--danger);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    border-radius: 10px;
+    padding: 8px 12px;
+    font-family: var(--font-display);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .warning-popup-delete:active {
+    background: var(--danger);
+    color: white;
+  }
+
+  /* ============ SLIDER ============ */
+  .slider-container {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 14px;
+  }
+  .slider-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+  }
+  .slider-value {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--accent-bright);
+    font-weight: 600;
+    background: rgba(59, 130, 246, 0.12);
+    padding: 2px 8px;
+    border-radius: 6px;
+  }
+  .slider {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 6px;
+    background: var(--bg-panel-solid);
+    border-radius: 3px;
+    outline: none;
+  }
+  .slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 22px; height: 22px;
+    background: var(--accent);
+    border: 3px solid white;
+    border-radius: 50%;
+    cursor: pointer;
+    box-shadow: 0 2px 8px var(--accent-glow);
+  }
+  .slider::-moz-range-thumb {
+    width: 22px; height: 22px;
+    background: var(--accent);
+    border: 3px solid white;
+    border-radius: 50%;
+    cursor: pointer;
+    box-shadow: 0 2px 8px var(--accent-glow);
+  }
+  .slider-labels {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 6px;
+    font-size: 10px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+
+  /* ============ PERIMETER LIST ============ */
+  .perimeter-item {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 12px 14px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+  .perimeter-item-info { flex: 1; min-width: 0; }
+  .perimeter-item-name {
+    font-weight: 600;
+    font-size: 13px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .perimeter-item-meta {
+    font-size: 10px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    margin-top: 2px;
+  }
+  .perimeter-delete-btn {
+    width: 34px; height: 34px;
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    border-radius: 10px;
+    color: var(--danger);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .perimeter-delete-btn:active { background: var(--danger); color: white; }
+
+  /* ============ OBSTACLE PLACEMENT MODE ============ */
+  body.placing-obstacle #map { cursor: crosshair; }
+  body.placing-obstacle .leaflet-container { cursor: crosshair !important; }
+
+  .placement-hint {
+    position: fixed;
+    top: calc(var(--safe-top) + 72px);
+    left: 50%;
+    transform: translateX(-50%) translateY(-10px);
+    background: linear-gradient(135deg, #f5a13d 0%, #d97706 100%);
+    color: #1a1200;
+    font-weight: 700;
+    font-size: 13px;
+    padding: 10px 18px;
+    border-radius: 100px;
+    z-index: 600;
+    opacity: 0;
+    pointer-events: none;
+    box-shadow: 0 10px 30px rgba(251, 191, 36, 0.5);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: all 0.25s;
+    white-space: nowrap;
+  }
+  body.placing-obstacle .placement-hint {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+    pointer-events: auto;
+  }
+  .placement-hint .cancel-x {
+    background: rgba(0,0,0,0.15);
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-left: 4px;
+    cursor: pointer;
+  }
+
+  /* Active state on warning button when placing */
+  .secondary-action.warning-btn.placing {
+    background: var(--warning);
+    color: #1a1200;
+    border-color: var(--warning);
+    box-shadow: 0 0 0 3px rgba(251, 191, 36, 0.25);
+  }
+
+  /* ============ TOAST ============ */
+  .toast {
+    position: fixed;
+    top: calc(var(--safe-top) + 72px);
+    left: 50%;
+    transform: translateX(-50%) translateY(-20px);
+    background: var(--bg-panel-solid);
+    border: 1px solid var(--border-strong);
+    border-radius: 12px;
+    padding: 10px 16px;
+    font-size: 13px;
+    font-weight: 500;
+    z-index: 2000;
+    opacity: 0;
+    transition: all 0.3s;
+    pointer-events: none;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    white-space: nowrap;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  .toast.success { border-color: var(--success); color: var(--success); }
+  .toast.warning { border-color: var(--warning); color: var(--warning); }
+  .toast.error { border-color: var(--danger); color: var(--danger); }
+
+  /* ============ CUSTOM MARKERS ============ */
+  .user-marker {
+    width: 24px; height: 24px;
+    position: relative;
+  }
+  .user-marker-dot {
+    width: 14px; height: 14px;
+    background: var(--accent-bright);
+    border: 3px solid white;
+    border-radius: 50%;
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    box-shadow: 0 0 12px var(--accent-glow);
+  }
+
+  .warning-marker {
+    width: 18px; height: 18px;
+    background: var(--warning);
+    border: 1.5px solid #1a1200;
+    border-radius: 5px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 9px;
+    transform: rotate(0deg);
+    box-shadow: 0 2px 6px rgba(251, 191, 36, 0.5);
+  }
+
+  /* ============ WELCOME SCREEN ============ */
+  .welcome-screen {
+    position: fixed;
+    inset: 0;
+    z-index: 3000;
+    background: radial-gradient(ellipse at top, #1a2450 0%, #0a0e1a 60%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 24px calc(40px + var(--safe-bottom));
+    text-align: center;
+  }
+  .welcome-screen.hidden { display: none; }
+  .logo-360 {
+    width: 130px;
+    height: 130px;
+    margin-bottom: 24px;
+    filter: drop-shadow(0 20px 40px rgba(45, 53, 105, 0.5));
+    display: block;
+  }
+  .welcome-title {
+    font-size: 36px;
+    font-weight: 700;
+    letter-spacing: -1.2px;
+    margin-bottom: 8px;
+    background: linear-gradient(135deg, #ffffff 0%, #b8c5e8 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .welcome-subtitle {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-bottom: 36px;
+    line-height: 1.5;
+    max-width: 300px;
+  }
+  .welcome-btn {
+    width: 100%;
+    max-width: 300px;
+    height: 56px;
+    background: linear-gradient(135deg, var(--brand-orange) 0%, #d97706 100%);
+    border: none;
+    border-radius: 16px;
+    color: #1a1200;
+    font-family: var(--font-display);
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    cursor: pointer;
+    box-shadow: 0 10px 30px rgba(245, 161, 61, 0.35);
+  }
+  .welcome-btn:active { transform: scale(0.97); }
+  .welcome-hint {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 16px;
+    font-family: var(--font-mono);
+    letter-spacing: 1px;
+  }
+
+  /* Leaflet overrides */
+  .leaflet-container { background: #1a1f2e !important; }
+  .leaflet-bar { display: none !important; }
+
+  /* Hide telemetry in landscape small */
+  @media (max-height: 500px) and (orientation: landscape) {
+    .telemetry { font-size: 9px; padding: 6px 8px; }
+    .panel-stats { display: none; }
+    .bottom-panel { padding-top: 8px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- WELCOME SCREEN -->
+<div class="welcome-screen" id="welcomeScreen">
+  <svg class="logo-360" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="logoGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3b82f6"/>
+      <stop offset="100%" stop-color="#1e3a8a"/>
+    </linearGradient>
+  </defs>
+  <!-- Hexagonal outer frame -->
+  <polygon points="60,8 104,32 104,88 60,112 16,88 16,32" fill="url(#logoGrad)" stroke="#6d7ac4" stroke-width="2"/>
+  <!-- Inner hexagon ring -->
+  <polygon points="60,22 92,40 92,80 60,98 28,80 28,40" fill="none" stroke="#ffffff" stroke-width="1.5" stroke-opacity="0.35"/>
+  <!-- Map grid lines (horizontal) -->
+  <line x1="30" y1="50" x2="90" y2="50" stroke="#ffffff" stroke-width="0.8" stroke-opacity="0.25"/>
+  <line x1="30" y1="70" x2="90" y2="70" stroke="#ffffff" stroke-width="0.8" stroke-opacity="0.25"/>
+  <!-- Map grid lines (vertical) -->
+  <line x1="45" y1="35" x2="45" y2="85" stroke="#ffffff" stroke-width="0.8" stroke-opacity="0.25"/>
+  <line x1="75" y1="35" x2="75" y2="85" stroke="#ffffff" stroke-width="0.8" stroke-opacity="0.25"/>
+  <!-- Central map pin -->
+  <path d="M60 42 C52 42, 46 48, 46 56 C46 66, 60 80, 60 80 C60 80, 74 66, 74 56 C74 48, 68 42, 60 42 Z" fill="#f5a13d" stroke="#ffffff" stroke-width="2"/>
+  <circle cx="60" cy="56" r="5" fill="#ffffff"/>
+</svg>
+  <h1 class="welcome-title">Atta'M GeoTrace</h1>
+  <p class="welcome-subtitle">Plataforma de mapeamento de campo com gravação de rotas, marcação de interdições e importação de perímetros.</p>
+  <button class="welcome-btn" id="startBtn">Entrar</button>
+  <p class="welcome-hint">ACESSO PROTEGIDO POR SENHA</p>
+</div>
+
+<!-- MAP -->
+<div id="map"></div>
+
+<!-- TOP BAR -->
+<div class="top-bar">
+  <div class="project-pill" id="projectPill">
+    <div class="dot"></div>
+    <div class="project-info">
+      <span class="project-label">Projeto Ativo</span>
+      <span class="project-name" id="projectName">Nenhum</span>
+    </div>
+  </div>
+  <div class="sync-status ok" id="syncStatus" title="Status de sincronização">—</div>
+  <button class="icon-btn user-btn" id="userBtn" aria-label="Usuário" title="Usuário" style="position:relative">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+      <circle cx="12" cy="7" r="4"/>
+    </svg>
+    <div class="user-dropdown" id="userDropdown">
+      <div class="user-email" id="userEmail">—</div>
+      <button onclick="signOut();" class="danger">🚪 Sair da conta</button>
+    </div>
+  </button>
+  <button class="icon-btn" id="projectsBtn" aria-label="Projetos">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+    </svg>
+  </button>
+  <button class="icon-btn" id="settingsBtn" aria-label="Configurações">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="3"/>
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+    </svg>
+  </button>
+  <button class="icon-btn" id="menuBtn" aria-label="Menu">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/>
+    </svg>
+  </button>
+</div>
+
+<!-- TELEMETRY -->
+<div class="telemetry" id="telemetry">
+  <div class="row"><span class="label">GPS</span><span class="value" id="telGps">—</span></div>
+</div>
+
+<!-- FLOATING CONTROLS -->
+<div class="float-controls">
+  <div class="zoom-group">
+    <button class="float-btn" id="zoomIn" aria-label="Aumentar zoom">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+    </button>
+    <button class="float-btn" id="zoomOut" aria-label="Diminuir zoom">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M5 12h14"/></svg>
+    </button>
+  </div>
+  <button class="float-btn" id="locateBtn" aria-label="Centralizar em mim">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="10"/>
+      <line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/>
+      <line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/>
+    </svg>
+  </button>
+</div>
+
+<!-- BOTTOM PANEL -->
+<div class="bottom-panel">
+  <div class="drag-handle"></div>
+  <div class="panel-stats">
+    <div class="stat-card">
+      <div class="stat-label">Distância</div>
+      <div class="stat-value" id="statDistance">0<span class="stat-unit">m</span></div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Tempo</div>
+      <div class="stat-value" id="statTime">00:00</div>
+    </div>
+  </div>
+  <div class="action-row">
+    <button class="primary-action" id="recordBtn">
+      <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="8"/></svg>
+      <span id="recordBtnText">Iniciar Rota</span>
+    </button>
+    <button class="secondary-action warning-btn" id="warningBtn" aria-label="Marcar Interdição">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+        <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+      </svg>
+    </button>
+  </div>
+</div>
+
+<!-- NEW PROJECT MODAL -->
+<div class="modal-backdrop" id="newProjectModal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">Novo Projeto</div>
+      <button class="modal-close" id="closeNewProject">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Nome do Trabalho</label>
+      <input type="text" class="form-input" id="newProjectInput" placeholder="Ex: Rua Central" autocomplete="off">
+      <p style="font-size:11px;color:var(--text-muted);margin-top:6px;line-height:1.4">
+        Se já existir um projeto com esse nome, será criado automaticamente como <span style="font-family:var(--font-mono);color:var(--accent-bright)">_1</span>, <span style="font-family:var(--font-mono);color:var(--accent-bright)">_2</span>, etc.
+      </p>
+    </div>
+    <button class="btn-full" id="createProjectBtn">Criar e Ativar</button>
+  </div>
+</div>
+
+<!-- PROJECTS LIST MODAL -->
+<div class="modal-backdrop" id="projectsListModal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">Projetos</div>
+      <button class="modal-close" id="closeProjectsList">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <button class="btn-full" id="openNewProject" style="margin-bottom:16px">+ Novo Projeto</button>
+    <div class="project-list" id="projectList"></div>
+  </div>
+</div>
+
+<!-- MENU MODAL -->
+<div class="modal-backdrop" id="menuModal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">Opções</div>
+      <button class="modal-close" id="closeMenu">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <button class="btn-full" id="exportBtn" style="margin-bottom:8px">📦 Exportar Projeto (GeoPackage)</button>
+    <button class="btn-full secondary" id="openPerimetersBtn" style="margin-bottom:8px">🗺️ Gerenciar Perímetros (KMZ)</button>
+    <button class="btn-full secondary" id="clearWarningsBtn" style="margin-bottom:8px">Limpar Interdições do Projeto</button>
+    <button class="btn-full secondary" id="fitRouteBtn" style="margin-bottom:8px">Enquadrar Rota no Mapa</button>
+    <button class="btn-full secondary" id="aboutBtn">📊 Diagnóstico & Informações</button>
+    <input type="file" id="kmzFileInput" accept=".kmz,.kml" style="display:none">
+  </div>
+</div>
+
+<!-- SETTINGS MODAL -->
+<div class="modal-backdrop" id="settingsModal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">Configurações</div>
+      <button class="modal-close" id="closeSettings">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+
+    <div class="settings-group">
+      <div class="settings-group-title">Interdições</div>
+
+      <div class="settings-row">
+        <div class="settings-row-text">
+          <div class="settings-label">Pedir descrição ao marcar</div>
+          <div class="settings-desc">Quando ativo, pergunta uma nota (ex: "obra da Sabesp") a cada interdição.</div>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" id="toggleAskDescription">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+    </div>
+
+    <div class="settings-group">
+      <div class="settings-group-title">Rastreamento</div>
+
+      <div class="settings-row">
+        <div class="settings-row-text">
+          <div class="settings-label">Seguir automaticamente</div>
+          <div class="settings-desc">Mapa centraliza em você enquanto anda. Desligue para explorar o mapa manualmente.</div>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" id="toggleFollow" checked>
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+    </div>
+
+    <div class="settings-group">
+      <div class="settings-group-title">Perímetros (KMZ)</div>
+
+      <div class="slider-container">
+        <div class="slider-header">
+          <div class="settings-label" style="margin:0">Tonalidade do preenchimento</div>
+          <div class="slider-value" id="opacityValue">8%</div>
+        </div>
+        <input type="range" min="0" max="40" step="1" value="8" class="slider" id="sliderOpacity">
+        <div class="slider-labels">
+          <span>Transparente</span>
+          <span>Escuro</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="settings-group">
+      <div class="settings-group-title">Filtro Kalman (suavização GPS)</div>
+
+      <div class="slider-container">
+        <div class="slider-header">
+          <div class="settings-label" style="margin:0">Intensidade da suavização</div>
+          <div class="slider-value" id="kalmanValue">3.0</div>
+        </div>
+        <input type="range" min="0.5" max="10" step="0.5" value="3" class="slider" id="sliderKalman">
+        <div class="slider-labels">
+          <span>Mais suave</span>
+          <span>Mais responsivo</span>
+        </div>
+        <div class="settings-desc" style="margin-top:10px">
+          Menor = rota mais reta, menor desvio (mas pode cortar curvas fechadas).<br>
+          Maior = rota acompanha melhor as mudanças de direção (menos suavização).<br>
+          Padrão: <strong style="color:var(--text-primary)">3.0</strong> — funciona para caminhada e veículo urbano.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- PERIMETERS LIST MODAL -->
+<div class="modal-backdrop" id="perimetersModal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">Perímetros do Projeto</div>
+      <button class="modal-close" id="closePerimeters">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <button class="btn-full" id="addPerimeterBtn" style="margin-bottom:16px">+ Importar KMZ / KML</button>
+    <div id="perimeterList"></div>
+  </div>
+</div>
+
+<!-- DIAGNOSTIC MODAL -->
+<div class="modal-backdrop" id="diagnosticModal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">Diagnóstico & Informações</div>
+      <button class="modal-close" id="closeDiagnostic">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div id="diagnosticContent"></div>
+    <button class="btn-full secondary" id="refreshDiagnosticBtn" style="margin-top:12px">🔄 Atualizar</button>
+  </div>
+</div>
+
+<!-- PASSWORD MODAL -->
+<div class="modal-backdrop" id="passwordModal" style="z-index:4000">
+  <div class="modal" style="max-width:380px">
+    <div style="text-align:center;margin-bottom:18px">
+      <svg width="48" height="48" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" style="margin-bottom:8px">
+        <defs>
+          <linearGradient id="authLogoGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#3b82f6"/>
+            <stop offset="100%" stop-color="#1e3a8a"/>
+          </linearGradient>
+        </defs>
+        <polygon points="60,8 104,32 104,88 60,112 16,88 16,32" fill="url(#authLogoGrad)" stroke="#6d7ac4" stroke-width="2"/>
+        <path d="M60 42 C52 42, 46 48, 46 56 C46 66, 60 80, 60 80 C60 80, 74 66, 74 56 C74 48, 68 42, 60 42 Z" fill="#f5a13d" stroke="#ffffff" stroke-width="2"/>
+        <circle cx="60" cy="56" r="5" fill="#ffffff"/>
+      </svg>
+      <div class="modal-title" style="text-align:center">Atta'M GeoTrace</div>
+      <div style="font-size:12px;color:var(--text-muted);margin-top:6px">Acesse com seu e-mail corporativo</div>
+    </div>
+    <div class="form-group">
+      <input type="email" class="form-input" id="emailInput" placeholder="E-mail" autocomplete="email" inputmode="email">
+    </div>
+    <div class="form-group">
+      <input type="password" class="form-input" id="passwordInput" placeholder="Senha" autocomplete="current-password">
+      <p id="passwordError" style="font-size:12px;color:var(--danger);margin-top:8px;display:none;font-weight:500"></p>
+    </div>
+    <button class="btn-full" id="submitPasswordBtn" style="background:linear-gradient(135deg,var(--brand-orange) 0%,#d97706 100%);color:#1a1200">Entrar</button>
+    <p style="font-size:11px;color:var(--text-muted);text-align:center;margin-top:14px;line-height:1.5">
+      Não tem conta? Solicite acesso ao administrador.<br>
+      Contas são criadas apenas por convite.
+    </p>
+  </div>
+</div>
+
+<!-- PLACEMENT HINT -->
+<div class="placement-hint" id="placementHint">
+  <span>⚠️ Toque no mapa para marcar</span>
+  <span class="cancel-x" id="cancelPlacement" aria-label="Cancelar">
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+  </span>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.3/dist/umd/supabase.min.js"></script>
+<script>
+'use strict';
+
+// ====================== SUPABASE CLIENT ======================
+const SUPABASE_URL = 'https://uxjrvgcrmmwpsenaegzm.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV4anJ2Z2NybW13cHNlbmFlZ3ptIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2NTMzNzIsImV4cCI6MjA5MjIyOTM3Mn0.MclAZIiz_1hNJGiClSZNAMFf8Jz10USzG8jPUv-X9GI';
+
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+    storage: window.localStorage,
+  },
+  realtime: {
+    params: { eventsPerSecond: 5 }
+  }
+});
+
+// ====================== STATE ======================
+const state = {
+  map: null,
+  userMarker: null,
+  accuracyCircle: null,
+  position: null,       // { lat, lng, accuracy }
+  heading: 0,           // degrees (device orientation)
+  gpsHeading: null,     // degrees from GPS movement
+  speed: 0,             // m/s
+  watchId: null,
+  orientationActive: false,
+  followUser: true,
+
+  recording: false,
+  paused: false,
+  currentProject: null,
+  projects: {},         // { name: { segments: [[latlng,...], ...], warnings: [], createdAt, distance } }
+  currentSegment: null, // array being actively appended
+  polylines: [],        // active leaflet polylines for current project
+  warningMarkers: [],   // active leaflet warning markers
+
+  timerStart: null,
+  timerElapsed: 0,
+  timerInterval: null,
+
+  lastRoutePoint: null, // { lat, lng, time } for distance calc
+
+  // Kalman filter state — suaviza ruído do GPS em tempo real
+  kalman: null,  // { lat, lng, variance, timestamp }
+
+  kmzLayerMap: new Map(),  // id → Leaflet layerGroup (perimetros ativos no mapa)
+
+  placingObstacle: false, // when true, next map click places warning
+
+  settings: {
+    askDescription: true,  // pedir descritivo ao marcar interdição
+    followUser: true,      // seguir usuário automaticamente (default)
+    kmzFillOpacity: 0.08,  // opacidade do preenchimento de perímetros (0 = transparente)
+    kalmanNoise: 3.0,      // ruído de processo do filtro Kalman (0.5 a 10)
+  },
+};
+
+// ====================== AUTHENTICATION (Supabase) ======================
+// Agora usamos autenticação com email+senha via Supabase.
+// Contas são criadas pelo admin no painel Supabase (convite fechado).
+
+let currentUser = null;       // objeto user do Supabase quando logado
+let currentUserName = null;   // email curto exibido na UI ("joao@attam" → "joao")
+
+function isAuthenticated() {
+  return currentUser !== null;
+}
+
+function getUserDisplayName() {
+  if (!currentUser) return '?';
+  // Usa a parte antes do @ como nome curto
+  const email = currentUser.email || '';
+  return email.split('@')[0] || email;
+}
+
+let pendingAuthCallback = null;
+
+function requireAuth(callback) {
+  if (isAuthenticated()) { callback(); return; }
+  pendingAuthCallback = callback;
+  const emailInput = document.getElementById('emailInput');
+  const passInput = document.getElementById('passwordInput');
+  emailInput.value = '';
+  passInput.value = '';
+  document.getElementById('passwordError').style.display = 'none';
+  openModal('passwordModal');
+  setTimeout(() => emailInput.focus(), 150);
+}
+
+async function submitPassword() {
+  const emailInput = document.getElementById('emailInput');
+  const passInput = document.getElementById('passwordInput');
+  const err = document.getElementById('passwordError');
+  const btn = document.getElementById('submitPasswordBtn');
+
+  const email = emailInput.value.trim();
+  const password = passInput.value;
+
+  if (!email || !password) {
+    err.textContent = 'Preencha e-mail e senha';
+    err.style.display = 'block';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Entrando...';
+  err.style.display = 'none';
+
+  try {
+    const { data, error } = await sb.auth.signInWithPassword({ email, password });
+    if (error) throw error;
+
+    currentUser = data.user;
+    currentUserName = getUserDisplayName();
+
+    closeModal('passwordModal');
+    toast(`Bem-vindo, ${currentUserName} ✓`, 'success');
+
+    // Iniciar sincronização com nuvem
+    await sync.initialLoad();
+    sync.startRealtimeSubscription();
+
+    if (pendingAuthCallback) {
+      const cb = pendingAuthCallback;
+      pendingAuthCallback = null;
+      cb();
+    }
+  } catch (e) {
+    console.error('Login failed', e);
+    err.textContent = e.message || 'Erro ao autenticar';
+    err.style.display = 'block';
+    passInput.value = '';
+    passInput.focus();
+    try { if (navigator.vibrate) navigator.vibrate(100); } catch(_) {}
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Entrar';
+  }
+}
+
+async function signOut() {
+  try {
+    sync.stopRealtimeSubscription();
+    await sb.auth.signOut();
+  } catch(e) { console.error(e); }
+  currentUser = null;
+  currentUserName = null;
+  location.reload();
+}
+
+// Verifica sessão salva ao carregar
+async function restoreSession() {
+  try {
+    const { data: { session } } = await sb.auth.getSession();
+    if (session && session.user) {
+      currentUser = session.user;
+      currentUserName = getUserDisplayName();
+      return true;
+    }
+  } catch(e) { console.error(e); }
+  return false;
+}
+
+// ====================== PERSISTENCE ======================
+const STORAGE_KEY = 'fieldmapper_v1';
+
+function saveState() {
+  try {
+    const data = {
+      projects: state.projects,
+      currentProject: state.currentProject,
+      settings: state.settings,
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  } catch (e) { console.error('Save failed', e); }
+}
+
+function loadState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const data = JSON.parse(raw);
+      state.projects = data.projects || {};
+      state.currentProject = data.currentProject || null;
+      if (data.settings) {
+        state.settings = { ...state.settings, ...data.settings };
+      }
+      // Migração: garantir que todo projeto tenha o campo perimeters
+      Object.values(state.projects).forEach(p => {
+        if (!Array.isArray(p.perimeters)) p.perimeters = [];
+      });
+    }
+    // Aplicar valor Kalman salvo à variável global usada pelo filtro
+    if (typeof state.settings.kalmanNoise === 'number') {
+      kalmanProcessNoise = state.settings.kalmanNoise;
+    }
+  } catch (e) { console.error('Load failed', e); }
+}
+
+// ====================== CLOUD SYNC ======================
+// Arquitetura local-first:
+// - Toda ação é aplicada imediatamente no state local (sem esperar rede)
+// - Em paralelo, a fila de sync tenta enviar para o Supabase
+// - Se offline, a fila acumula e drena quando volta conexão
+// - Ao abrir app, puxa mudanças do servidor desde o último sync
+// - Realtime atualiza a UI quando outros usuários fazem alterações
+
+const sync = {
+  queue: [],              // operações pendentes de sincronização
+  isOnline: navigator.onLine,
+  isSyncing: false,
+  lastSyncAt: null,
+  realtimeSub: null,
+  projectIdByName: {},    // mapa local: nome de projeto → UUID no Supabase
+
+  // Adiciona operação à fila e tenta drenar
+  enqueue(op) {
+    this.queue.push({ ...op, enqueuedAt: Date.now() });
+    this.saveQueue();
+    this.updateStatusUI();
+    this.drain();
+  },
+
+  saveQueue() {
+    try {
+      localStorage.setItem('fieldmapper_sync_queue', JSON.stringify(this.queue));
+    } catch(e) { console.error('Failed to save queue', e); }
+  },
+
+  loadQueue() {
+    try {
+      const raw = localStorage.getItem('fieldmapper_sync_queue');
+      if (raw) this.queue = JSON.parse(raw);
+    } catch(e) { this.queue = []; }
+  },
+
+  async drain() {
+    if (this.isSyncing || !this.isOnline || this.queue.length === 0) return;
+    if (!isAuthenticated()) return;
+
+    this.isSyncing = true;
+    this.updateStatusUI();
+
+    while (this.queue.length > 0 && this.isOnline) {
+      const op = this.queue[0];
+      try {
+        await this.executeOp(op);
+        this.queue.shift(); // remove após sucesso
+        this.saveQueue();
+        this.updateStatusUI();
+      } catch (e) {
+        console.error('Sync op failed:', op, e);
+        // Se foi erro de rede, para de tentar
+        if (e.message && (e.message.includes('Failed to fetch') || e.message.includes('NetworkError'))) {
+          this.isOnline = false;
+          break;
+        }
+        // Outros erros: pula a operação para não travar a fila
+        this.queue.shift();
+        this.saveQueue();
+      }
+    }
+
+    this.isSyncing = false;
+    this.lastSyncAt = Date.now();
+    this.updateStatusUI();
+  },
+
+  async executeOp(op) {
+    switch (op.type) {
+      case 'create_project':
+        return await this.opCreateProject(op);
+      case 'delete_project':
+        return await this.opDeleteProject(op);
+      case 'rename_project':
+        return await this.opRenameProject(op);
+      case 'add_item':
+        return await this.opAddItem(op);
+      case 'delete_item':
+        return await this.opDeleteItem(op);
+      case 'update_project_distance':
+        return await this.opUpdateProjectDistance(op);
+      default:
+        console.warn('Unknown op type:', op.type);
+    }
+  },
+
+  async opCreateProject(op) {
+    const { data, error } = await sb.from('projects').insert({
+      id: op.projectId,
+      name: op.name,
+      created_by: currentUser.id,
+    }).select().single();
+    if (error) throw error;
+    this.projectIdByName[op.name] = op.projectId;
+  },
+
+  async opDeleteProject(op) {
+    const { error } = await sb.from('projects').delete().eq('id', op.projectId);
+    if (error) throw error;
+  },
+
+  async opRenameProject(op) {
+    const { error } = await sb.from('projects')
+      .update({ name: op.newName })
+      .eq('id', op.projectId);
+    if (error) throw error;
+  },
+
+  async opAddItem(op) {
+    const { error } = await sb.from('project_items').insert({
+      id: op.itemId,
+      project_id: op.projectId,
+      kind: op.kind,
+      payload: op.payload,
+      created_by: currentUser.id,
+      created_by_name: currentUserName,
+    });
+    if (error && error.code !== '23505') throw error; // ignora duplicatas
+  },
+
+  async opDeleteItem(op) {
+    const { error } = await sb.from('project_items').delete().eq('id', op.itemId);
+    if (error) throw error;
+  },
+
+  async opUpdateProjectDistance(op) {
+    const { error } = await sb.from('projects')
+      .update({ total_distance_m: op.distance })
+      .eq('id', op.projectId);
+    if (error) throw error;
+  },
+
+  // Carga inicial: puxa todos os projetos + itens do Supabase e reconstrói o state
+  async initialLoad() {
+    if (!isAuthenticated()) return;
+    try {
+      this.updateStatusUI('Carregando projetos...');
+
+      // 1. Buscar todos os projetos
+      const { data: projects, error: pErr } = await sb
+        .from('projects')
+        .select('*')
+        .order('created_at', { ascending: true });
+      if (pErr) throw pErr;
+
+      // 2. Buscar todos os itens de uma vez
+      const { data: items, error: iErr } = await sb
+        .from('project_items')
+        .select('*')
+        .order('created_at', { ascending: true });
+      if (iErr) throw iErr;
+
+      // 3. Reconstruir state.projects a partir dos dados
+      const newProjects = {};
+      const idByName = {};
+
+      for (const p of projects) {
+        newProjects[p.name] = {
+          _id: p.id,
+          segments: [],
+          warnings: [],
+          perimeters: [],
+          distance: p.total_distance_m || 0,
+          createdAt: p.created_at,
+          createdBy: p.created_by,
+          editingBy: p.editing_by_name,
+          editingUntil: p.editing_until,
+        };
+        idByName[p.name] = p.id;
+      }
+
+      // 4. Distribuir itens nos projetos
+      for (const item of items) {
+        const projName = Object.keys(idByName).find(n => idByName[n] === item.project_id);
+        if (!projName || !newProjects[projName]) continue;
+        const proj = newProjects[projName];
+        const payload = item.payload;
+
+        if (item.kind === 'route_segment') {
+          const seg = payload.points || [];
+          seg._itemId = item.id;
+          proj.segments.push(seg);
+        } else if (item.kind === 'warning') {
+          proj.warnings.push({
+            _itemId: item.id,
+            lat: payload.lat,
+            lng: payload.lng,
+            note: payload.note || '',
+            t: payload.t || new Date(item.created_at).getTime(),
+            by: item.created_by_name,
+          });
+        } else if (item.kind === 'perimeter') {
+          proj.perimeters.push({
+            _itemId: item.id,
+            id: payload.id || item.id,
+            name: payload.name,
+            features: payload.features,
+            addedAt: payload.addedAt || item.created_at,
+            by: item.created_by_name,
+          });
+        }
+      }
+
+      state.projects = newProjects;
+      this.projectIdByName = idByName;
+
+      // Se tinha projeto aberto local e ele ainda existe, mantém; senão fecha
+      if (state.currentProject && !newProjects[state.currentProject]) {
+        state.currentProject = null;
+        clearProjectLayers();
+      } else if (state.currentProject) {
+        clearProjectLayers();
+        loadProjectOnMap();
+      }
+
+      saveState();
+      renderProjectList();
+      updateProjectUI();
+      this.lastSyncAt = Date.now();
+      this.updateStatusUI();
+    } catch (e) {
+      console.error('Initial load failed', e);
+      this.updateStatusUI('Erro ao carregar da nuvem');
+      toast('Falha ao sincronizar com nuvem — trabalhando offline', 'warning');
+    }
+  },
+
+  // Subscribe a mudanças em tempo real (broadcast de outros usuários)
+  startRealtimeSubscription() {
+    if (this.realtimeSub) return;
+
+    this.realtimeSub = sb
+      .channel('db-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'projects' },
+        payload => this.handleRealtimeProject(payload))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'project_items' },
+        payload => this.handleRealtimeItem(payload))
+      .subscribe();
+  },
+
+  stopRealtimeSubscription() {
+    if (this.realtimeSub) {
+      sb.removeChannel(this.realtimeSub);
+      this.realtimeSub = null;
+    }
+  },
+
+  handleRealtimeProject(payload) {
+    const ev = payload.eventType; // INSERT, UPDATE, DELETE
+    const row = payload.new || payload.old;
+
+    if (ev === 'INSERT') {
+      // Projeto novo criado por outro usuário
+      if (!this.projectIdByName[row.name]) {
+        state.projects[row.name] = {
+          _id: row.id, segments: [], warnings: [], perimeters: [],
+          distance: 0, createdAt: row.created_at,
+          createdBy: row.created_by,
+        };
+        this.projectIdByName[row.name] = row.id;
+        renderProjectList();
+        if (row.created_by !== currentUser.id) {
+          toast(`Novo projeto: "${row.name}"`, 'success');
+        }
+      }
+    } else if (ev === 'UPDATE') {
+      // Atualização de lock ou rename
+      const existingName = Object.keys(this.projectIdByName).find(
+        n => this.projectIdByName[n] === row.id
+      );
+      if (existingName) {
+        const proj = state.projects[existingName];
+        if (proj) {
+          proj.editingBy = row.editing_by_name;
+          proj.editingUntil = row.editing_until;
+
+          // Rename?
+          if (row.name !== existingName) {
+            state.projects[row.name] = proj;
+            delete state.projects[existingName];
+            delete this.projectIdByName[existingName];
+            this.projectIdByName[row.name] = row.id;
+            if (state.currentProject === existingName) {
+              state.currentProject = row.name;
+            }
+            renderProjectList();
+            updateProjectUI();
+          }
+          updateEditLockUI(existingName);
+        }
+      }
+    } else if (ev === 'DELETE') {
+      const projName = Object.keys(this.projectIdByName).find(
+        n => this.projectIdByName[n] === row.id
+      );
+      if (projName) {
+        delete state.projects[projName];
+        delete this.projectIdByName[projName];
+        if (state.currentProject === projName) {
+          state.currentProject = null;
+          clearProjectLayers();
+          updateProjectUI();
+        }
+        renderProjectList();
+        toast(`Projeto "${projName}" foi removido`, 'warning');
+      }
+    }
+  },
+
+  handleRealtimeItem(payload) {
+    const ev = payload.eventType;
+    const row = payload.new || payload.old;
+
+    // Ignora mudanças que nós mesmos fizemos
+    if (row.created_by === currentUser.id && ev === 'INSERT') return;
+
+    const projName = Object.keys(this.projectIdByName).find(
+      n => this.projectIdByName[n] === row.project_id
+    );
+    if (!projName || !state.projects[projName]) return;
+    const proj = state.projects[projName];
+    const isCurrentProj = state.currentProject === projName;
+
+    if (ev === 'INSERT') {
+      const payload_ = row.payload;
+      if (row.kind === 'route_segment') {
+        const seg = payload_.points || [];
+        seg._itemId = row.id;
+        proj.segments.push(seg);
+        if (isCurrentProj && seg.length >= 2) {
+          const pl = L.polyline(seg.map(p => [p.lat, p.lng]), {
+            color: '#3b82f6', weight: 6, opacity: 0.85,
+            lineCap: 'round', lineJoin: 'round',
+          }).addTo(state.map);
+          state.polylines.push(pl);
+        }
+        toast(`${row.created_by_name} adicionou uma rota`, 'success');
+      } else if (row.kind === 'warning') {
+        const w = {
+          _itemId: row.id, lat: payload_.lat, lng: payload_.lng,
+          note: payload_.note || '', t: payload_.t,
+          by: row.created_by_name,
+        };
+        proj.warnings.push(w);
+        if (isCurrentProj) addWarningMarkerToMap(w.lat, w.lng, w.note, w.t, w._itemId);
+        toast(`${row.created_by_name} marcou uma interdição`, 'warning');
+      } else if (row.kind === 'perimeter') {
+        const p = {
+          _itemId: row.id, id: payload_.id || row.id,
+          name: payload_.name, features: payload_.features,
+          addedAt: payload_.addedAt || row.created_at,
+          by: row.created_by_name,
+        };
+        proj.perimeters.push(p);
+        if (isCurrentProj) renderPerimeter(p);
+        toast(`${row.created_by_name} importou um perímetro KMZ`, 'success');
+      }
+      if (isCurrentProj) updateStats();
+      renderProjectList();
+    } else if (ev === 'DELETE') {
+      // Remover item do state e do mapa
+      const removeFromArray = (arr) => {
+        const idx = arr.findIndex(x => x._itemId === row.id);
+        if (idx !== -1) { arr.splice(idx, 1); return true; }
+        return false;
+      };
+
+      if (row.kind === 'warning') {
+        if (removeFromArray(proj.warnings) && isCurrentProj) {
+          // Remover marker correspondente
+          state.warningMarkers = state.warningMarkers.filter(m => {
+            if (m._itemId === row.id) { state.map.removeLayer(m); return false; }
+            return true;
+          });
+          updateStats();
+        }
+      } else if (row.kind === 'perimeter') {
+        if (removeFromArray(proj.perimeters) && isCurrentProj) {
+          const layer = state.kmzLayerMap.get(row.id);
+          if (layer) { state.map.removeLayer(layer); state.kmzLayerMap.delete(row.id); }
+        }
+      }
+    }
+  },
+
+  // Atualiza o indicador visual de status no header
+  updateStatusUI(override) {
+    const el = document.getElementById('syncStatus');
+    if (!el) return;
+
+    let label, cls;
+    if (override) {
+      label = override; cls = 'syncing';
+    } else if (!this.isOnline) {
+      label = this.queue.length ? `Offline · ${this.queue.length} pendentes` : 'Offline';
+      cls = 'offline';
+    } else if (this.isSyncing) {
+      label = 'Sincronizando...'; cls = 'syncing';
+    } else if (this.queue.length > 0) {
+      label = `${this.queue.length} pendentes`; cls = 'pending';
+    } else {
+      label = this.lastSyncAt ? 'Sincronizado' : 'Pronto';
+      cls = 'ok';
+    }
+    el.textContent = label;
+    el.className = 'sync-status ' + cls;
+  },
+};
+
+// Eventos de conectividade
+window.addEventListener('online', () => {
+  sync.isOnline = true;
+  sync.updateStatusUI();
+  sync.drain();
+});
+window.addEventListener('offline', () => {
+  sync.isOnline = false;
+  sync.updateStatusUI();
+});
+
+// ====================== UTILS ======================
+function toast(msg, type = '') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'toast show ' + type;
+  clearTimeout(el._t);
+  el._t = setTimeout(() => { el.className = 'toast ' + type; }, 2500);
+}
+
+function haversine(lat1, lng1, lat2, lng2) {
+  const R = 6371000;
+  const toRad = d => d * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng/2)**2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+// ====================== FILTRO KALMAN PARA GPS ======================
+// Suaviza o ruído natural do GPS combinando previsão (baseada em movimento anterior)
+// com observação (nova leitura GPS), ponderando pela precisão reportada.
+//
+// Princípio:
+// - GPS com alta precisão (accuracy pequena) → confia mais na observação
+// - GPS com baixa precisão → confia mais na previsão (suaviza mais)
+// - Quanto mais tempo passa entre leituras, mais a incerteza cresce
+//
+// Parâmetros ajustados para caminhada/veículo lento urbano:
+// - Q (process noise): quanto esperamos que a posição "real" varie entre medidas.
+//   Valor em m²/s. 3 m²/s cobre bem caminhada (~5 km/h) e carro lento.
+// Ruído de processo do Kalman — configurável pelo usuário via Configurações.
+// Valores baixos (ex: 0.5) → mais suavização (rota mais reta, mas pode "cortar" curvas).
+// Valores altos (ex: 10)  → menos suavização (acompanha melhor mudanças bruscas).
+// 3.0 é o padrão equilibrado para caminhada/carro urbano.
+const KALMAN_DEFAULT = 3.0;
+let kalmanProcessNoise = KALMAN_DEFAULT;
+
+function kalmanFilter(newLat, newLng, newAccuracy, newTimestamp) {
+  // Primeira observação: inicializa estado com a própria leitura
+  if (!state.kalman) {
+    state.kalman = {
+      lat: newLat,
+      lng: newLng,
+      variance: newAccuracy * newAccuracy,
+      timestamp: newTimestamp,
+    };
+    return { lat: newLat, lng: newLng };
+  }
+
+  const k = state.kalman;
+  const dt = Math.max(0.1, (newTimestamp - k.timestamp) / 1000); // segundos, mínimo 0.1
+
+  // Previsão: incerteza cresce com o tempo decorrido
+  const predictedVariance = k.variance + kalmanProcessNoise * dt;
+
+  // Variância da observação = (accuracy)²
+  const observationVariance = newAccuracy * newAccuracy;
+
+  // Ganho de Kalman: peso dado à nova observação
+  // Se predictedVariance é alta e observationVariance baixa → K próximo de 1 (confia no GPS)
+  // Se predictedVariance é baixa e observationVariance alta → K próximo de 0 (confia na previsão)
+  const K = predictedVariance / (predictedVariance + observationVariance);
+
+  // Atualiza estimativa: combina previsão com observação
+  const filteredLat = k.lat + K * (newLat - k.lat);
+  const filteredLng = k.lng + K * (newLng - k.lng);
+  const newVariance = (1 - K) * predictedVariance;
+
+  state.kalman.lat = filteredLat;
+  state.kalman.lng = filteredLng;
+  state.kalman.variance = newVariance;
+  state.kalman.timestamp = newTimestamp;
+
+  return { lat: filteredLat, lng: filteredLng };
+}
+
+function resetKalman() {
+  state.kalman = null;
+}
+
+// Distância perpendicular (em metros) de um ponto até uma linha definida por 2 pontos.
+// Usa projeção simples em coordenadas cartesianas locais — precisão suficiente para
+// simplificação de rotas GPS onde a tolerância é da ordem de 1-10 metros.
+function perpendicularDistance(pt, lineStart, lineEnd) {
+  // Converter para metros aproximados relativos ao ponto inicial
+  const latAvg = (lineStart.lat + lineEnd.lat) / 2;
+  const mPerDegLat = 111320;
+  const mPerDegLng = 111320 * Math.cos(latAvg * Math.PI / 180);
+
+  const x0 = (pt.lng - lineStart.lng) * mPerDegLng;
+  const y0 = (pt.lat - lineStart.lat) * mPerDegLat;
+  const x1 = (lineEnd.lng - lineStart.lng) * mPerDegLng;
+  const y1 = (lineEnd.lat - lineStart.lat) * mPerDegLat;
+
+  const lineLen2 = x1*x1 + y1*y1;
+  if (lineLen2 === 0) return Math.sqrt(x0*x0 + y0*y0);
+  // Distância perpendicular usando produto vetorial
+  const cross = Math.abs(x0 * y1 - y0 * x1);
+  return cross / Math.sqrt(lineLen2);
+}
+
+// Algoritmo Douglas-Peucker iterativo (evita stack overflow em rotas gigantes).
+// Recebe array de pontos {lat, lng, ...} e tolerância em metros.
+// Retorna subconjunto mantendo forma original dentro da tolerância.
+function simplifyRouteDouglasPeucker(points, toleranceMeters) {
+  if (!points || points.length <= 2) return points;
+
+  const keep = new Uint8Array(points.length);
+  keep[0] = 1;
+  keep[points.length - 1] = 1;
+
+  // Stack de segmentos [startIdx, endIdx] para processar iterativamente
+  const stack = [[0, points.length - 1]];
+
+  while (stack.length > 0) {
+    const [start, end] = stack.pop();
+    if (end - start <= 1) continue;
+
+    let maxDist = 0;
+    let maxIdx = -1;
+    for (let i = start + 1; i < end; i++) {
+      const d = perpendicularDistance(points[i], points[start], points[end]);
+      if (d > maxDist) {
+        maxDist = d;
+        maxIdx = i;
+      }
+    }
+
+    if (maxDist > toleranceMeters && maxIdx !== -1) {
+      keep[maxIdx] = 1;
+      stack.push([start, maxIdx]);
+      stack.push([maxIdx, end]);
+    }
+  }
+
+  const result = [];
+  for (let i = 0; i < points.length; i++) {
+    if (keep[i]) result.push(points[i]);
+  }
+  return result;
+}
+
+function formatDistance(m) {
+  if (m < 1000) return { val: Math.round(m), unit: 'm' };
+  return { val: (m/1000).toFixed(2), unit: 'km' };
+}
+
+function formatTime(sec) {
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = Math.floor(sec % 60);
+  if (h > 0) return `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+  return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+}
+
+// Formata timestamp (ms ou ISO string) para horário local de Brasília (UTC-3)
+// Formato: "2026-04-17 16:14:50 (UTC-3 Brasília)"
+function formatBrasiliaTime(timestamp) {
+  const d = typeof timestamp === 'number' ? new Date(timestamp) : new Date(timestamp);
+  // Converter para UTC-3 (Brasília, sem horário de verão — DST foi extinto em 2019)
+  // Usamos manualmente -3h do UTC para evitar dependência de fuso do dispositivo
+  const utc = d.getTime();
+  const brasilia = new Date(utc - 3 * 3600 * 1000);
+  const pad = (n) => String(n).padStart(2, '0');
+  const Y = brasilia.getUTCFullYear();
+  const M = pad(brasilia.getUTCMonth() + 1);
+  const D = pad(brasilia.getUTCDate());
+  const h = pad(brasilia.getUTCHours());
+  const m = pad(brasilia.getUTCMinutes());
+  const s = pad(brasilia.getUTCSeconds());
+  return `${Y}-${M}-${D} ${h}:${m}:${s} (UTC-3 Brasília)`;
+}
+
+function getUniqueProjectName(base) {
+  if (!state.projects[base]) return base;
+  let i = 1;
+  while (state.projects[`${base}_${i}`]) i++;
+  return `${base}_${i}`;
+}
+
+// ====================== MAP INIT ======================
+function initMap() {
+  state.map = L.map('map', {
+    zoomControl: false,
+    attributionControl: true,
+    rotate: false,
+  }).setView([-23.359, -47.854], 15); // Tatuí default
+
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '© OpenStreetMap',
+  }).addTo(state.map);
+
+  // Drag disables follow
+  state.map.on('dragstart', () => {
+    if (state.placingObstacle) return;
+    state.followUser = false;
+    updateLocateBtn();
+  });
+
+  // Click on map places obstacle when in placement mode
+  state.map.on('click', (e) => {
+    if (state.placingObstacle) {
+      placeObstacleAt(e.latlng.lat, e.latlng.lng);
+    }
+  });
+}
+
+function updateLocateBtn() {
+  const btn = document.getElementById('locateBtn');
+  if (state.followUser) btn.classList.add('active');
+  else btn.classList.remove('active');
+}
+
+// ====================== USER MARKER ======================
+function ensureUserMarker() {
+  if (!state.position) return;
+  const { lat, lng, accuracy } = state.position;
+
+  if (!state.accuracyCircle) {
+    state.accuracyCircle = L.circle([lat, lng], {
+      radius: accuracy,
+      color: '#60a5fa',
+      weight: 1,
+      fillColor: '#3b82f6',
+      fillOpacity: 0.12,
+      interactive: false,
+    }).addTo(state.map);
+  } else {
+    state.accuracyCircle.setLatLng([lat, lng]);
+    state.accuracyCircle.setRadius(accuracy);
+  }
+
+  if (!state.userMarker) {
+    const icon = L.divIcon({
+      className: '',
+      html: `<div class="user-marker">
+        <div class="user-marker-dot"></div>
+      </div>`,
+      iconSize: [24, 24],
+      iconAnchor: [12, 12],
+    });
+    state.userMarker = L.marker([lat, lng], { icon, interactive: false }).addTo(state.map);
+  } else {
+    state.userMarker.setLatLng([lat, lng]);
+  }
+}
+
+// ====================== GPS ======================
+function startGPS() {
+  if (!navigator.geolocation) {
+    toast('GPS não disponível neste dispositivo', 'error');
+    return;
+  }
+  state.watchId = navigator.geolocation.watchPosition(onGPS, onGPSError, {
+    enableHighAccuracy: true,
+    maximumAge: 1000,
+    timeout: 15000,
+  });
+}
+
+function onGPS(pos) {
+  const { latitude, longitude, accuracy, heading, speed } = pos.coords;
+  const prev = state.position;
+  state.position = { lat: latitude, lng: longitude, accuracy };
+  state.speed = speed || 0;
+  if (heading != null && !isNaN(heading)) state.gpsHeading = heading;
+
+  ensureUserMarker();
+  updateTelemetry();
+
+  // Follow user
+  if (state.followUser) {
+    state.map.panTo([latitude, longitude], { animate: true, duration: 0.4 });
+  }
+
+  // Recording
+  if (state.recording && !state.paused) {
+    addPointToRoute(latitude, longitude, accuracy);
+  }
+}
+
+function onGPSError(err) {
+  console.error('GPS error', err);
+  if (err.code === 1) toast('Permissão de GPS negada', 'error');
+  else if (err.code === 2) toast('GPS indisponível — verifique configurações', 'error');
+  else if (err.code === 3) toast('GPS timeout — buscando sinal...', 'warning');
+  const tg = document.getElementById('telGps');
+  tg.textContent = 'ERRO';
+  tg.className = 'value bad';
+}
+
+function updateTelemetry() {
+  const { accuracy } = state.position;
+  const tg = document.getElementById('telGps');
+  tg.textContent = `±${Math.round(accuracy)}m`;
+  if (accuracy <= 10) tg.className = 'value good';
+  else if (accuracy <= 30) tg.className = 'value warn';
+  else tg.className = 'value bad';
+}
+
+// ====================== ORIENTATION (só para seta do usuário) ======================
+async function startOrientation() {
+  // iOS permission
+  if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+    try {
+      const p = await DeviceOrientationEvent.requestPermission();
+      if (p !== 'granted') return false;
+    } catch(e) { return false; }
+  }
+  window.addEventListener('deviceorientationabsolute', onOrientation, true);
+  window.addEventListener('deviceorientation', onOrientation, true);
+  state.orientationActive = true;
+  return true;
+}
+
+function onOrientation(e) {
+  let heading = null;
+  if (e.webkitCompassHeading != null) heading = e.webkitCompassHeading;
+  else if (e.alpha != null) heading = 360 - e.alpha;
+  if (heading == null || isNaN(heading)) return;
+  heading = ((heading % 360) + 360) % 360;
+  state.heading = heading;
+}
+
+// ====================== PROJECTS ======================
+function createProject(name) {
+  const unique = getUniqueProjectName(name.trim());
+  // Gerar UUID para o projeto (Supabase vai receber este mesmo ID)
+  const projectId = crypto.randomUUID();
+  state.projects[unique] = {
+    _id: projectId,
+    segments: [],
+    warnings: [],
+    perimeters: [],
+    createdAt: new Date().toISOString(),
+    distance: 0,
+  };
+  state.currentProject = unique;
+  sync.projectIdByName[unique] = projectId;
+  saveState();
+  loadProjectOnMap();
+  updateProjectUI();
+  toast(`Projeto "${unique}" criado`, 'success');
+
+  // Sincroniza com nuvem
+  if (isAuthenticated()) {
+    sync.enqueue({ type: 'create_project', projectId, name: unique });
+  }
+}
+
+function switchProject(name) {
+  if (state.recording) {
+    toast('Pare a gravação antes de trocar', 'warning');
+    return;
+  }
+  state.currentProject = name;
+  saveState();
+  clearProjectLayers();
+  loadProjectOnMap();
+  updateProjectUI();
+  toast(`Projeto "${name}" ativado`);
+}
+
+function deleteProject(name) {
+  if (!confirm(`Excluir projeto "${name}"? Esta ação é irreversível.`)) return;
+  const projectId = sync.projectIdByName[name];
+  delete state.projects[name];
+  delete sync.projectIdByName[name];
+  if (state.currentProject === name) {
+    state.currentProject = null;
+    clearProjectLayers();
+  }
+  saveState();
+  renderProjectList();
+  updateProjectUI();
+  toast('Projeto excluído', 'warning');
+
+  if (isAuthenticated() && projectId) {
+    sync.enqueue({ type: 'delete_project', projectId });
+  }
+}
+
+function clearProjectLayers() {
+  state.polylines.forEach(pl => state.map.removeLayer(pl));
+  state.polylines = [];
+  state.warningMarkers.forEach(m => state.map.removeLayer(m));
+  state.warningMarkers = [];
+  clearAllPerimeterLayers();
+}
+
+function loadProjectOnMap() {
+  if (!state.currentProject) return;
+  const proj = state.projects[state.currentProject];
+  if (!proj) return;
+
+  proj.segments.forEach(seg => {
+    if (seg.length >= 2) {
+      const pl = L.polyline(seg.map(p => [p.lat, p.lng]), {
+        color: '#3b82f6',
+        weight: 6,
+        opacity: 0.85,
+        lineCap: 'round',
+        lineJoin: 'round',
+      }).addTo(state.map);
+      state.polylines.push(pl);
+    }
+  });
+
+  proj.warnings.forEach(w => addWarningMarkerToMap(w.lat, w.lng, w.note, w.t, w._itemId));
+
+  // Renderizar perímetros salvos
+  renderAllPerimetersFromProject();
+
+  // Se o projeto tem conteúdo, enquadrar tudo automaticamente
+  fitProjectContent();
+}
+
+// Enquadra no mapa toda a rota + interdições + perímetros do projeto atual
+function fitProjectContent() {
+  if (!state.currentProject || !state.map) return;
+  const proj = state.projects[state.currentProject];
+  if (!proj) return;
+
+  const bounds = L.latLngBounds([]);
+  let hasContent = false;
+
+  // Pontos da rota
+  proj.segments.forEach(seg => {
+    seg.forEach(p => {
+      bounds.extend([p.lat, p.lng]);
+      hasContent = true;
+    });
+  });
+
+  // Interdições
+  proj.warnings.forEach(w => {
+    bounds.extend([w.lat, w.lng]);
+    hasContent = true;
+  });
+
+  // Perímetros (KMZ) — usa bounds das layers já renderizadas
+  state.kmzLayerMap.forEach(layer => {
+    try {
+      const b = layer.getBounds();
+      if (b && b.isValid()) {
+        bounds.extend(b);
+        hasContent = true;
+      }
+    } catch(e) { /* ignora layer sem bounds */ }
+  });
+
+  if (hasContent && bounds.isValid()) {
+    // Pequeno delay para garantir que tiles/layers já carregaram
+    setTimeout(() => {
+      state.map.fitBounds(bounds, { padding: [60, 60], maxZoom: 18 });
+      // Desativar follow porque o usuário pode estar em outro lugar
+      state.followUser = false;
+      updateLocateBtn();
+    }, 150);
+  }
+}
+
+function addWarningMarkerToMap(lat, lng, note = '', timestamp = null, itemId = null) {
+  const icon = L.divIcon({
+    className: '',
+    html: `<div class="warning-marker">⚠️</div>`,
+    iconSize: [18, 18],
+    iconAnchor: [9, 9],
+  });
+  const m = L.marker([lat, lng], { icon }).addTo(state.map);
+
+  // Identificador único: timestamp (já é único na prática) + lat/lng
+  const markerKey = timestamp || Date.now();
+
+  // Popup com nota (se houver) e botão de excluir
+  const popupHtml = `
+    <div class="warning-popup">
+      ${note ? `<div class="warning-popup-note">${escapeHtml(note)}</div>` : '<div class="warning-popup-empty">Sem descrição</div>'}
+      <button class="warning-popup-delete" data-key="${markerKey}">🗑️ Excluir esta interdição</button>
+    </div>
+  `;
+  m.bindPopup(popupHtml);
+
+  m.on('popupopen', (e) => {
+    const btn = e.popup.getElement().querySelector('.warning-popup-delete');
+    if (btn) {
+      btn.onclick = () => {
+        deleteWarning(markerKey, m);
+      };
+    }
+  });
+
+  state.warningMarkers.push(m);
+  m._warningKey = markerKey;
+  m._itemId = itemId;
+  return m;
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+function deleteWarning(key, marker) {
+  if (!state.currentProject) return;
+  const proj = state.projects[state.currentProject];
+  const removed = proj.warnings.find(w => w.t === key);
+  proj.warnings = proj.warnings.filter(w => w.t !== key);
+  state.map.removeLayer(marker);
+  state.warningMarkers = state.warningMarkers.filter(m => m !== marker);
+  saveState();
+  toast('Interdição excluída', 'success');
+
+  // Sincroniza remoção
+  if (isAuthenticated() && removed && removed._itemId) {
+    sync.enqueue({ type: 'delete_item', itemId: removed._itemId });
+  }
+}
+
+function updateProjectUI() {
+  const nameEl = document.getElementById('projectName');
+  nameEl.textContent = state.currentProject || 'Nenhum';
+}
+
+// ====================== RECORDING ======================
+function toggleRecording() {
+  if (!state.currentProject) {
+    openNewProjectModal();
+    toast('Crie um projeto primeiro', 'warning');
+    return;
+  }
+  if (!state.position) {
+    toast('Aguardando sinal GPS...', 'warning');
+    return;
+  }
+
+  if (!state.recording) {
+    // Start
+    state.recording = true;
+    state.paused = false;
+    startNewSegment();
+    resetKalman();  // zera filtro para começar limpo
+    state.timerStart = Date.now() - state.timerElapsed * 1000;
+    startTimer();
+    toast('Gravação iniciada', 'success');
+  } else if (!state.paused) {
+    // Pause
+    state.paused = true;
+    stopTimer();
+    toast('Pausado', 'warning');
+  } else {
+    // Resume — cria NOVO segmento separado (sem reta conectando ao anterior)
+    state.paused = false;
+    startNewSegment();
+    resetKalman();  // reinicializa filtro para a nova sub-rota
+    state.timerStart = Date.now() - state.timerElapsed * 1000;
+    startTimer();
+    toast('Nova sub-rota iniciada', 'success');
+  }
+  updateRecordButton();
+}
+
+function stopRecording() {
+  state.recording = false;
+  state.paused = false;
+  state.currentSegment = null;
+  state.lastRoutePoint = null;
+  resetKalman();
+  stopTimer();
+  state.timerElapsed = 0;
+  updateStats();
+  updateRecordButton();
+
+  // Sincronizar com a nuvem: cada segmento sem _itemId vira um novo item
+  if (isAuthenticated() && state.currentProject) {
+    const proj = state.projects[state.currentProject];
+    const projectId = sync.projectIdByName[state.currentProject];
+    if (projectId && proj) {
+      let syncedSegments = 0;
+      proj.segments.forEach(seg => {
+        if (seg.length < 2 || seg._itemId) return; // ignora vazios e já sincronizados
+        const itemId = crypto.randomUUID();
+        seg._itemId = itemId;
+        // Calcular distância do segmento
+        let segDist = 0;
+        for (let i = 1; i < seg.length; i++) {
+          segDist += haversine(seg[i-1].lat, seg[i-1].lng, seg[i].lat, seg[i].lng);
+        }
+        sync.enqueue({
+          type: 'add_item', itemId, projectId, kind: 'route_segment',
+          payload: {
+            points: seg.map(p => ({ lat: p.lat, lng: p.lng, t: p.t })),
+            created_at: new Date().toISOString(),
+            distance_m: segDist,
+          }
+        });
+        syncedSegments++;
+      });
+      // Atualizar distância total do projeto na nuvem
+      sync.enqueue({
+        type: 'update_project_distance',
+        projectId,
+        distance: proj.distance
+      });
+      saveState();
+      if (syncedSegments > 0) {
+        toast(`Gravação finalizada · ${syncedSegments} sub-rota(s) enviando`, 'success');
+      } else {
+        toast('Gravação finalizada', 'success');
+      }
+      return;
+    }
+  }
+
+  toast('Gravação finalizada', 'success');
+}
+
+function startNewSegment() {
+  const proj = state.projects[state.currentProject];
+  const seg = [];
+  proj.segments.push(seg);
+  state.currentSegment = seg;
+  state.lastRoutePoint = null;
+}
+
+function addPointToRoute(lat, lng, accuracy) {
+  if (!state.currentSegment) startNewSegment();
+
+  // Filter low-quality fixes
+  if (accuracy > 50) return;
+
+  // Aplica filtro Kalman: suaviza a volatilidade do GPS usando a precisão reportada
+  // como peso. Entrada: lat/lng cru do GPS. Saída: lat/lng filtrado e estável.
+  const now = Date.now();
+  const filtered = kalmanFilter(lat, lng, accuracy, now);
+  const fLat = filtered.lat;
+  const fLng = filtered.lng;
+
+  // Filter jitter — require at least 2m movement (or first point)
+  if (state.lastRoutePoint) {
+    const d = haversine(state.lastRoutePoint.lat, state.lastRoutePoint.lng, fLat, fLng);
+    if (d < 2) return;
+    state.projects[state.currentProject].distance += d;
+  }
+
+  state.currentSegment.push({ lat: fLat, lng: fLng, t: now });
+  state.lastRoutePoint = { lat: fLat, lng: fLng };
+
+  // Simplificação automática: quando segmento fica grande, aplica Douglas-Peucker
+  // para reduzir vértices sem perder forma. Preserva últimos ~200 pontos "vivos"
+  // (sem simplificar) para manter precisão na parte recém-gravada.
+  if (state.currentSegment.length >= LIMITS.ROUTE_SIMPLIFY_TRIGGER) {
+    const freshTailSize = 200;
+    if (state.currentSegment.length > freshTailSize + 100) {
+      const head = state.currentSegment.slice(0, state.currentSegment.length - freshTailSize);
+      const tail = state.currentSegment.slice(state.currentSegment.length - freshTailSize);
+      const simplified = simplifyRouteDouglasPeucker(head, LIMITS.ROUTE_SIMPLIFY_TOLERANCE_M);
+      state.currentSegment.length = 0;
+      for (const p of simplified) state.currentSegment.push(p);
+      for (const p of tail) state.currentSegment.push(p);
+      // Atualiza referência no projeto (array foi reescrito in-place, mas por segurança)
+      state.projects[state.currentProject].segments[state.projects[state.currentProject].segments.length - 1] = state.currentSegment;
+    }
+  }
+
+  // Redraw current segment
+  const proj = state.projects[state.currentProject];
+  const segIdx = proj.segments.length - 1;
+  if (state.currentSegment.length >= 2) {
+    const existing = state.polylines[segIdx];
+    const coords = state.currentSegment.map(p => [p.lat, p.lng]);
+    if (existing) {
+      existing.setLatLngs(coords);
+    } else {
+      const pl = L.polyline(coords, {
+        color: '#3b82f6', weight: 6, opacity: 0.85,
+        lineCap: 'round', lineJoin: 'round',
+      }).addTo(state.map);
+      state.polylines[segIdx] = pl;
+    }
+  }
+
+  updateStats();
+  saveStateThrottled();
+}
+
+let saveTimer = null;
+function saveStateThrottled() {
+  if (saveTimer) return;
+  saveTimer = setTimeout(() => { saveState(); saveTimer = null; }, 2000);
+}
+
+function updateRecordButton() {
+  const btn = document.getElementById('recordBtn');
+  const text = document.getElementById('recordBtnText');
+  const pill = document.getElementById('projectPill');
+  btn.classList.remove('recording', 'paused');
+  pill.classList.remove('recording');
+
+  if (!state.recording) {
+    text.textContent = 'Iniciar Rota';
+  } else if (state.paused) {
+    btn.classList.add('paused');
+    text.textContent = 'Retomar';
+  } else {
+    btn.classList.add('recording');
+    pill.classList.add('recording');
+    text.textContent = 'Pausar';
+  }
+}
+
+function startTimer() {
+  stopTimer();
+  state.timerInterval = setInterval(() => {
+    state.timerElapsed = (Date.now() - state.timerStart) / 1000;
+    updateStats();
+  }, 1000);
+}
+function stopTimer() {
+  if (state.timerInterval) clearInterval(state.timerInterval);
+  state.timerInterval = null;
+}
+
+function updateStats() {
+  const proj = state.projects[state.currentProject];
+  if (proj) {
+    const d = formatDistance(proj.distance);
+    document.getElementById('statDistance').innerHTML = `${d.val}<span class="stat-unit">${d.unit}</span>`;
+  } else {
+    document.getElementById('statDistance').innerHTML = `0<span class="stat-unit">m</span>`;
+  }
+  document.getElementById('statTime').textContent = formatTime(state.timerElapsed);
+}
+
+function updateUserBadge() {
+  // Atualiza o indicador de sync
+  sync.updateStatusUI();
+}
+
+function updateEditLockUI(projectName) {
+  // Se o projeto atual está sendo editado por outro usuário, mostrar lock
+  // (visível na lista de projetos e no header)
+  // Não precisa de UI dedicada agora — basta que o realtime atualize o state
+  // e o toast notifique. Para uma v2, podemos adicionar badge no pill.
+}
+
+// ====================== WARNINGS ======================
+// ====================== WARNING / OBSTACLE PLACEMENT ======================
+function toggleObstaclePlacement() {
+  if (!state.currentProject) {
+    toast('Crie ou selecione um projeto primeiro', 'warning');
+    openNewProjectModal();
+    return;
+  }
+  if (state.placingObstacle) {
+    cancelObstaclePlacement();
+  } else {
+    startObstaclePlacement();
+  }
+}
+
+function startObstaclePlacement() {
+  state.placingObstacle = true;
+  document.body.classList.add('placing-obstacle');
+  document.getElementById('warningBtn').classList.add('placing');
+  toast('Toque no mapa onde quer marcar a interdição', 'warning');
+}
+
+function cancelObstaclePlacement() {
+  state.placingObstacle = false;
+  document.body.classList.remove('placing-obstacle');
+  document.getElementById('warningBtn').classList.remove('placing');
+}
+
+function placeObstacleAt(lat, lng) {
+  cancelObstaclePlacement();
+
+  let note = '';
+  if (state.settings.askDescription) {
+    const input = prompt('Descrição da interdição (ex: "obra da Sabesp"):');
+    if (input === null) {
+      // Usuário cancelou — não marca
+      toast('Cancelado', '');
+      return;
+    }
+    note = input.trim();
+  }
+
+  const itemId = crypto.randomUUID();
+  const w = { _itemId: itemId, lat, lng, note, t: Date.now(), by: currentUserName };
+  state.projects[state.currentProject].warnings.push(w);
+  addWarningMarkerToMap(lat, lng, note, w.t, itemId);
+  saveState();
+  toast('Interdição marcada ⚠️', 'warning');
+
+  // Sincroniza com nuvem
+  if (isAuthenticated()) {
+    const projectId = sync.projectIdByName[state.currentProject];
+    if (projectId) {
+      sync.enqueue({
+        type: 'add_item', itemId, projectId, kind: 'warning',
+        payload: { lat, lng, note, t: w.t }
+      });
+    }
+  }
+}
+
+function clearWarnings() {
+  if (!state.currentProject) return;
+  if (!confirm('Remover todas as interdições deste projeto?')) return;
+  state.projects[state.currentProject].warnings = [];
+  state.warningMarkers.forEach(m => state.map.removeLayer(m));
+  state.warningMarkers = [];
+  saveState();
+  toast('Interdições removidas');
+}
+
+// ====================== EXPORT: GEOPACKAGE ======================
+// GeoPackage é um SQLite seguindo o padrão OGC. Usamos sql.js para montar no navegador.
+
+let SQLPromise = null;
+function loadSQL() {
+  if (!SQLPromise) {
+    SQLPromise = initSqlJs({
+      locateFile: f => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/${f}`
+    });
+  }
+  return SQLPromise;
+}
+
+// Codifica um número em bytes Big-Endian (padrão GPKG usa little-endian no WKB interno,
+// mas o cabeçalho tem sua própria ordem). Implementamos tudo little-endian (byteOrder=1).
+function writeDouble(view, offset, value) {
+  view.setFloat64(offset, value, true); // little-endian
+}
+function writeUint32(view, offset, value) {
+  view.setUint32(offset, value, true);
+}
+
+// Monta o cabeçalho GeoPackage binary + WKB para uma geometria
+// srs_id = 4326 (WGS 84)
+function buildGpkgGeometry(wkbBuffer, envelope) {
+  // Cabeçalho GPKG: magic(2) + version(1) + flags(1) + srs_id(4) + envelope(opcional)
+  // flags: bits 0-3 envelope type (1 = minX,maxX,minY,maxY = 32 bytes), bit 0 também é endian
+  // Usamos envelope tipo 1 (32 bytes) em little-endian
+  const envSize = 32;
+  const header = new ArrayBuffer(8 + envSize);
+  const hv = new DataView(header);
+  hv.setUint8(0, 0x47); // 'G'
+  hv.setUint8(1, 0x50); // 'P'
+  hv.setUint8(2, 0);    // version 0
+  // flags: bit 0 = endian (1=LE), bits 1-3 = envelope type (1 = xy = 32 bytes)
+  // byteOrder=1 (LE), envelope=1 (xy), empty=0, geomType=0 (standard)
+  hv.setUint8(3, 0b00000011); // 0x03 = LE + envelope type 1
+  hv.setUint32(4, 4326, true); // srs_id = 4326 WGS84
+  hv.setFloat64(8, envelope.minX, true);
+  hv.setFloat64(16, envelope.maxX, true);
+  hv.setFloat64(24, envelope.minY, true);
+  hv.setFloat64(32, envelope.maxY, true);
+
+  // Junta com o WKB
+  const total = new Uint8Array(header.byteLength + wkbBuffer.byteLength);
+  total.set(new Uint8Array(header), 0);
+  total.set(new Uint8Array(wkbBuffer), header.byteLength);
+  return total;
+}
+
+// WKB Point (lat/lng do nosso sistema = y/x no WKB)
+function wkbPoint(lng, lat) {
+  const buf = new ArrayBuffer(21); // 1 byteOrder + 4 type + 8 x + 8 y
+  const dv = new DataView(buf);
+  dv.setUint8(0, 1); // little-endian
+  dv.setUint32(1, 1, true); // type = Point
+  dv.setFloat64(5, lng, true); // X
+  dv.setFloat64(13, lat, true); // Y
+  return buf;
+}
+
+// WKB LineString
+function wkbLineString(coords) {
+  // 1 byteOrder + 4 type + 4 numPoints + n*(8+8)
+  const n = coords.length;
+  const buf = new ArrayBuffer(9 + n * 16);
+  const dv = new DataView(buf);
+  dv.setUint8(0, 1);
+  dv.setUint32(1, 2, true); // type = LineString
+  dv.setUint32(5, n, true);
+  let o = 9;
+  for (const [lng, lat] of coords) {
+    dv.setFloat64(o, lng, true); o += 8;
+    dv.setFloat64(o, lat, true); o += 8;
+  }
+  return buf;
+}
+
+function envelopeOf(coords) {
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const [lng, lat] of coords) {
+    if (lng < minX) minX = lng;
+    if (lng > maxX) maxX = lng;
+    if (lat < minY) minY = lat;
+    if (lat > maxY) maxY = lat;
+  }
+  return { minX, maxX, minY, maxY };
+}
+
+async function exportProject() {
+  if (!state.currentProject) {
+    toast('Nenhum projeto ativo', 'warning');
+    return;
+  }
+  const proj = state.projects[state.currentProject];
+  const projName = state.currentProject;
+
+  toast('Gerando GeoPackage...', '');
+
+  try {
+    const SQL = await loadSQL();
+    const db = new SQL.Database();
+
+    // ===== Schema base obrigatório do OGC GeoPackage =====
+    db.run(`
+      CREATE TABLE gpkg_spatial_ref_sys (
+        srs_name TEXT NOT NULL,
+        srs_id INTEGER PRIMARY KEY NOT NULL,
+        organization TEXT NOT NULL,
+        organization_coordsys_id INTEGER NOT NULL,
+        definition TEXT NOT NULL,
+        description TEXT
+      );
+      INSERT INTO gpkg_spatial_ref_sys VALUES
+        ('Undefined cartesian SRS', -1, 'NONE', -1, 'undefined', 'undefined cartesian'),
+        ('Undefined geographic SRS', 0, 'NONE', 0, 'undefined', 'undefined geographic'),
+        ('WGS 84 geodetic', 4326, 'EPSG', 4326,
+         'GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563,AUTHORITY["EPSG","7030"]],AUTHORITY["EPSG","6326"]],PRIMEM["Greenwich",0,AUTHORITY["EPSG","8901"]],UNIT["degree",0.0174532925199433,AUTHORITY["EPSG","9122"]],AUTHORITY["EPSG","4326"]]',
+         'WGS 84');
+
+      CREATE TABLE gpkg_contents (
+        table_name TEXT NOT NULL PRIMARY KEY,
+        data_type TEXT NOT NULL,
+        identifier TEXT UNIQUE,
+        description TEXT DEFAULT '',
+        last_change DATETIME NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+        min_x DOUBLE, min_y DOUBLE, max_x DOUBLE, max_y DOUBLE,
+        srs_id INTEGER,
+        CONSTRAINT fk_gc_r_srs_id FOREIGN KEY (srs_id) REFERENCES gpkg_spatial_ref_sys(srs_id)
+      );
+
+      CREATE TABLE gpkg_geometry_columns (
+        table_name TEXT NOT NULL,
+        column_name TEXT NOT NULL,
+        geometry_type_name TEXT NOT NULL,
+        srs_id INTEGER NOT NULL,
+        z TINYINT NOT NULL,
+        m TINYINT NOT NULL,
+        CONSTRAINT pk_geom_cols PRIMARY KEY (table_name, column_name),
+        CONSTRAINT fk_gc_srs FOREIGN KEY (srs_id) REFERENCES gpkg_spatial_ref_sys(srs_id)
+      );
+    `);
+
+    // application_id = 'GPKG' (0x47504b47), user_version >= 10200
+    db.run(`PRAGMA application_id = 1196444487;`);
+    db.run(`PRAGMA user_version = 10300;`);
+
+    // ===== Tabela de rota (LineString) =====
+    const routeTable = 'rota';
+    db.run(`
+      CREATE TABLE ${routeTable} (
+        fid INTEGER PRIMARY KEY AUTOINCREMENT,
+        geom BLOB,
+        nome TEXT,
+        sub_rota INTEGER,
+        distancia_m REAL,
+        criado_em TEXT
+      );
+    `);
+    db.run(`INSERT INTO gpkg_geometry_columns VALUES (?, 'geom', 'LINESTRING', 4326, 0, 0);`, [routeTable]);
+
+    // Exporta CADA SEGMENTO como uma feature separada — assim pausar/retomar
+    // não conecta pontos via linha reta no GeoPackage. Cada sub-rota preserva
+    // sua continuidade natural.
+    let routeEnvelope = null;
+    const overallBounds = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+    let exportedSegments = 0;
+
+    proj.segments.forEach((seg, segIdx) => {
+      if (seg.length < 2) return;
+      const coords = seg.map(p => [p.lng, p.lat]);
+      const env = envelopeOf(coords);
+      // Atualiza bbox global
+      overallBounds.minX = Math.min(overallBounds.minX, env.minX);
+      overallBounds.minY = Math.min(overallBounds.minY, env.minY);
+      overallBounds.maxX = Math.max(overallBounds.maxX, env.maxX);
+      overallBounds.maxY = Math.max(overallBounds.maxY, env.maxY);
+
+      // Distância só deste segmento
+      let segDist = 0;
+      for (let i = 1; i < seg.length; i++) {
+        segDist += haversine(seg[i-1].lat, seg[i-1].lng, seg[i].lat, seg[i].lng);
+      }
+
+      const wkb = wkbLineString(coords);
+      const gpkgGeom = buildGpkgGeometry(wkb, env);
+      const subName = proj.segments.length > 1
+        ? `${projName} — sub-rota ${segIdx + 1}`
+        : projName;
+      db.run(`INSERT INTO ${routeTable} (geom, nome, sub_rota, distancia_m, criado_em) VALUES (?, ?, ?, ?, ?);`,
+        [gpkgGeom, subName, segIdx + 1, segDist, formatBrasiliaTime(proj.createdAt)]);
+      exportedSegments++;
+    });
+
+    if (exportedSegments > 0) {
+      routeEnvelope = overallBounds;
+      db.run(`INSERT INTO gpkg_contents (table_name, data_type, identifier, description, srs_id, min_x, min_y, max_x, max_y) VALUES (?, 'features', ?, ?, 4326, ?, ?, ?, ?);`,
+        [routeTable, routeTable, `Rotas do projeto (${exportedSegments} sub-rota${exportedSegments > 1 ? 's' : ''})`, routeEnvelope.minX, routeEnvelope.minY, routeEnvelope.maxX, routeEnvelope.maxY]);
+    } else {
+      db.run(`INSERT INTO gpkg_contents (table_name, data_type, identifier, description, srs_id) VALUES (?, 'features', ?, ?, 4326);`,
+        [routeTable, routeTable, 'Rota gravada do projeto']);
+    }
+
+    // ===== Tabela de interdições (Point) =====
+    const warnTable = 'interdicoes';
+    db.run(`
+      CREATE TABLE ${warnTable} (
+        fid INTEGER PRIMARY KEY AUTOINCREMENT,
+        geom BLOB,
+        nota TEXT,
+        registrado_em TEXT
+      );
+    `);
+    db.run(`INSERT INTO gpkg_geometry_columns VALUES (?, 'geom', 'POINT', 4326, 0, 0);`, [warnTable]);
+
+    let warnEnv = null;
+    if (proj.warnings.length > 0) {
+      const allPts = proj.warnings.map(w => [w.lng, w.lat]);
+      warnEnv = envelopeOf(allPts);
+      proj.warnings.forEach(w => {
+        const wkb = wkbPoint(w.lng, w.lat);
+        const env = { minX: w.lng, maxX: w.lng, minY: w.lat, maxY: w.lat };
+        const gpkgGeom = buildGpkgGeometry(wkb, env);
+        const t = formatBrasiliaTime(w.t);
+        db.run(`INSERT INTO ${warnTable} (geom, nota, registrado_em) VALUES (?, ?, ?);`,
+          [gpkgGeom, w.note || '', t]);
+      });
+      db.run(`INSERT INTO gpkg_contents (table_name, data_type, identifier, description, srs_id, min_x, min_y, max_x, max_y) VALUES (?, 'features', ?, ?, 4326, ?, ?, ?, ?);`,
+        [warnTable, warnTable, 'Interdições marcadas', warnEnv.minX, warnEnv.minY, warnEnv.maxX, warnEnv.maxY]);
+    } else {
+      db.run(`INSERT INTO gpkg_contents (table_name, data_type, identifier, description, srs_id) VALUES (?, 'features', ?, ?, 4326);`,
+        [warnTable, warnTable, 'Interdições marcadas']);
+    }
+
+    // Exportar binário
+    const bytes = db.export();
+    db.close();
+    const blob = new Blob([bytes], { type: 'application/geopackage+sqlite3' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${projName}.gpkg`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast('GeoPackage exportado ✓', 'success');
+  } catch (e) {
+    console.error(e);
+    toast('Erro ao exportar: ' + e.message, 'error');
+  }
+}
+
+// ====================== IMPORT: KMZ / KML (múltiplos + persistente) ======================
+async function importKmzFile(file) {
+  if (!file) return;
+  if (!state.currentProject) {
+    toast('Crie ou selecione um projeto primeiro', 'warning');
+    return;
+  }
+  toast('Lendo ' + file.name + '...', '');
+
+  try {
+    let kmlText = null;
+    if (file.name.toLowerCase().endsWith('.kmz')) {
+      const zip = await JSZip.loadAsync(file);
+      const kmlFile = Object.values(zip.files).find(f => f.name.toLowerCase().endsWith('.kml'));
+      if (!kmlFile) throw new Error('KMZ não contém arquivo KML');
+      kmlText = await kmlFile.async('string');
+    } else {
+      kmlText = await file.text();
+    }
+
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(kmlText, 'text/xml');
+    if (doc.querySelector('parsererror')) throw new Error('KML inválido');
+
+    // Extrair features como dados serializáveis (não Leaflet ainda)
+    const features = [];
+    const placemarks = doc.getElementsByTagName('Placemark');
+    for (const pm of placemarks) {
+      const name = pm.getElementsByTagName('name')[0]?.textContent || '';
+      const desc = pm.getElementsByTagName('description')[0]?.textContent || '';
+      const popup = name + (desc ? `<br><small>${desc}</small>` : '');
+
+      for (const poly of pm.getElementsByTagName('Polygon')) {
+        const outer = poly.querySelector('outerBoundaryIs coordinates, outerBoundaryIs > LinearRing > coordinates');
+        if (!outer) continue;
+        const coords = parseKmlCoords(outer.textContent);
+        if (coords.length < 3) continue;
+        const outerLatLngs = coords.map(c => [c[1], c[0]]);
+        const holes = [];
+        for (const inner of poly.getElementsByTagName('innerBoundaryIs')) {
+          const ic = inner.querySelector('coordinates');
+          if (ic) {
+            const hc = parseKmlCoords(ic.textContent);
+            if (hc.length >= 3) holes.push(hc.map(c => [c[1], c[0]]));
+          }
+        }
+        features.push({ type: 'polygon', outer: outerLatLngs, holes, popup });
+      }
+
+      for (const line of pm.getElementsByTagName('LineString')) {
+        const c = line.querySelector('coordinates');
+        if (!c) continue;
+        const coords = parseKmlCoords(c.textContent);
+        if (coords.length < 2) continue;
+        features.push({ type: 'polyline', coords: coords.map(p => [p[1], p[0]]), popup });
+      }
+
+      for (const pt of pm.getElementsByTagName('Point')) {
+        const c = pt.querySelector('coordinates');
+        if (!c) continue;
+        const coords = parseKmlCoords(c.textContent);
+        if (coords.length < 1) continue;
+        features.push({ type: 'point', lat: coords[0][1], lng: coords[0][0], popup });
+      }
+    }
+
+    if (features.length === 0) {
+      toast('Nenhum limite encontrado no arquivo', 'warning');
+      return;
+    }
+
+    // Salvar no projeto (persiste no localStorage)
+    const itemId = crypto.randomUUID();
+    const perimeter = {
+      _itemId: itemId,
+      id: 'p_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+      name: file.name,
+      addedAt: new Date().toISOString(),
+      features,
+      by: currentUserName,
+    };
+    state.projects[state.currentProject].perimeters.push(perimeter);
+    saveState();
+
+    // Renderizar no mapa
+    const layer = renderPerimeter(perimeter);
+    if (layer) {
+      const bounds = layer.getBounds ? layer.getBounds() : null;
+      if (bounds && bounds.isValid()) {
+        state.map.fitBounds(bounds, { padding: [40, 40] });
+        state.followUser = false;
+        updateLocateBtn();
+      }
+    }
+    toast(`${features.length} feature(s) de "${file.name}" ✓`, 'success');
+
+    // Sincroniza com nuvem
+    if (isAuthenticated()) {
+      const projectId = sync.projectIdByName[state.currentProject];
+      if (projectId) {
+        sync.enqueue({
+          type: 'add_item', itemId, projectId, kind: 'perimeter',
+          payload: { id: perimeter.id, name: perimeter.name, addedAt: perimeter.addedAt, features }
+        });
+      }
+    }
+  } catch (e) {
+    console.error(e);
+    toast('Erro ao importar: ' + e.message, 'error');
+  }
+}
+
+function renderPerimeter(perimeter) {
+  const layer = L.featureGroup();
+  const fillOpacity = state.settings.kmzFillOpacity;
+  const baseStyle = {
+    color: '#f5a13d',
+    weight: 2.5,
+    opacity: 0.9,
+    fillColor: '#f5a13d',
+    fillOpacity,
+    dashArray: '6,4',
+  };
+
+  perimeter.features.forEach(f => {
+    let leafletObj = null;
+    if (f.type === 'polygon') {
+      leafletObj = L.polygon([f.outer, ...(f.holes || [])], baseStyle);
+    } else if (f.type === 'polyline') {
+      leafletObj = L.polyline(f.coords, { color: baseStyle.color, weight: 3, opacity: 0.85, dashArray: '6,4' });
+    } else if (f.type === 'point') {
+      leafletObj = L.circleMarker([f.lat, f.lng], {
+        radius: 6, color: '#f5a13d', fillColor: '#f5a13d', fillOpacity: 0.6, weight: 2,
+      });
+    }
+    if (leafletObj) {
+      if (f.popup) leafletObj.bindPopup(f.popup);
+      layer.addLayer(leafletObj);
+    }
+  });
+
+  layer.addTo(state.map);
+  state.kmzLayerMap.set(perimeter.id, layer);
+  return layer;
+}
+
+function renderAllPerimetersFromProject() {
+  if (!state.currentProject) return;
+  const proj = state.projects[state.currentProject];
+  if (!proj || !proj.perimeters) return;
+  proj.perimeters.forEach(p => renderPerimeter(p));
+}
+
+function removePerimeterById(id) {
+  // Remove do mapa
+  const layer = state.kmzLayerMap.get(id);
+  if (layer) {
+    state.map.removeLayer(layer);
+    state.kmzLayerMap.delete(id);
+  }
+  // Remove do projeto
+  if (state.currentProject) {
+    const proj = state.projects[state.currentProject];
+    const removed = proj.perimeters.find(p => p.id === id);
+    proj.perimeters = proj.perimeters.filter(p => p.id !== id);
+    saveState();
+
+    if (isAuthenticated() && removed && removed._itemId) {
+      sync.enqueue({ type: 'delete_item', itemId: removed._itemId });
+    }
+  }
+}
+
+function clearAllPerimeterLayers() {
+  state.kmzLayerMap.forEach(layer => state.map.removeLayer(layer));
+  state.kmzLayerMap.clear();
+}
+
+// Reaplica estilo em todos os perímetros ativos (quando slider muda)
+function refreshPerimeterStyles() {
+  const fillOpacity = state.settings.kmzFillOpacity;
+  state.kmzLayerMap.forEach(fg => {
+    fg.eachLayer(l => {
+      if (l.setStyle && l instanceof L.Polygon) {
+        l.setStyle({ fillOpacity });
+      }
+    });
+  });
+}
+
+function parseKmlCoords(text) {
+  return text.trim().split(/\s+/).map(s => {
+    const parts = s.split(',').map(Number);
+    return [parts[0], parts[1]];
+  }).filter(p => !isNaN(p[0]) && !isNaN(p[1]));
+}
+
+// ====================== DIAGNOSTIC REPORT ======================
+// Limites baseados em testes e comportamento típico de navegadores mobile:
+const LIMITS = {
+  // localStorage: navegadores mobile geralmente oferecem 5-10 MB por origem
+  STORAGE_SOFT_MB: 4,      // acima disso, começa a ficar arriscado
+  STORAGE_HARD_MB: 5,      // limite comum de falha em dispositivos antigos
+  // KMZ: cada feature custa bytes; arquivos enormes travam o parsing
+  KMZ_SOFT_FEATURES: 500,  // até aqui roda suave
+  KMZ_HARD_FEATURES: 2000, // acima disso, risco de travamento em mobile
+  KMZ_MAX_FILE_MB: 15,     // tamanho do arquivo antes de descompactar
+  // Interdições: poucos pontos não causam travamento, mas muitos marcadores
+  // simultâneos no mapa impactam performance de pan/zoom
+  WARNINGS_SOFT: 200,
+  WARNINGS_HARD: 1000,
+  // Rota: com simplificação Douglas-Peucker ativa, suporta rotas muito longas
+  // ~50k vértices = aproximadamente 1000+ km de rota real gravada
+  ROUTE_SOFT_POINTS: 50000,
+  ROUTE_HARD_POINTS: 150000,
+  // Simplificação: quando rota cresce muito, aplica Douglas-Peucker para
+  // reduzir vértices mantendo a forma. Tolerância em metros.
+  ROUTE_SIMPLIFY_TRIGGER: 2000,    // começa a simplificar após N pontos no segmento
+  ROUTE_SIMPLIFY_TOLERANCE_M: 1.5, // tolerância em metros (quanto menor, mais fiel)
+};
+
+function countFeaturesInPerimeter(perim) {
+  return (perim.features || []).length;
+}
+
+function estimateStorageBytes() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY) || '';
+    // Cada char em localStorage ≈ 2 bytes (UTF-16)
+    return raw.length * 2;
+  } catch(e) { return 0; }
+}
+
+function formatBytes(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
+}
+
+function renderDiagnostic() {
+  const container = document.getElementById('diagnosticContent');
+  if (!container) return;
+
+  // === Armazenamento ===
+  const storageBytes = estimateStorageBytes();
+  const storageMB = storageBytes / (1024 * 1024);
+  const storagePct = Math.min(100, (storageMB / LIMITS.STORAGE_HARD_MB) * 100);
+  let storageClass = 'good';
+  let storageStatus = 'OK';
+  if (storageMB >= LIMITS.STORAGE_SOFT_MB) { storageClass = 'warn'; storageStatus = 'Atenção'; }
+  if (storageMB >= LIMITS.STORAGE_HARD_MB) { storageClass = 'bad'; storageStatus = 'Crítico'; }
+
+  // === Projeto atual ===
+  let projSection = '';
+  if (state.currentProject) {
+    const proj = state.projects[state.currentProject];
+    const routePoints = proj.segments.reduce((a, s) => a + s.length, 0);
+    const warningsCount = proj.warnings.length;
+    const perimetersCount = (proj.perimeters || []).length;
+    const totalFeatures = (proj.perimeters || []).reduce((a, p) => a + countFeaturesInPerimeter(p), 0);
+
+    const routeClass = routePoints < LIMITS.ROUTE_SOFT_POINTS ? 'good' :
+                       routePoints < LIMITS.ROUTE_HARD_POINTS ? 'warn' : 'bad';
+    const warnClass = warningsCount < LIMITS.WARNINGS_SOFT ? 'good' :
+                      warningsCount < LIMITS.WARNINGS_HARD ? 'warn' : 'bad';
+    const featClass = totalFeatures < LIMITS.KMZ_SOFT_FEATURES ? 'good' :
+                      totalFeatures < LIMITS.KMZ_HARD_FEATURES ? 'warn' : 'bad';
+
+    projSection = `
+      <div class="diag-section">
+        <div class="diag-section-title">Projeto Atual: ${escapeHtml(state.currentProject)}</div>
+        <div class="diag-card">
+          <div class="diag-row">
+            <span class="diag-row-label">Detalhamento da rota</span>
+            <span class="diag-row-value ${routeClass}">${routePoints.toLocaleString('pt-BR')} vértices</span>
+          </div>
+          <div class="diag-row">
+            <span class="diag-row-label">Distância</span>
+            <span class="diag-row-value">${formatDistance(proj.distance).val} ${formatDistance(proj.distance).unit}</span>
+          </div>
+          <div class="diag-row">
+            <span class="diag-row-label">Interdições marcadas</span>
+            <span class="diag-row-value ${warnClass}">${warningsCount}</span>
+          </div>
+          <div class="diag-row">
+            <span class="diag-row-label">Perímetros KMZ carregados</span>
+            <span class="diag-row-value">${perimetersCount}</span>
+          </div>
+          <div class="diag-row">
+            <span class="diag-row-label">Total de features KMZ</span>
+            <span class="diag-row-value ${featClass}">${totalFeatures.toLocaleString('pt-BR')}</span>
+          </div>
+        </div>
+      </div>
+    `;
+  } else {
+    projSection = `
+      <div class="diag-section">
+        <div class="diag-section-title">Projeto Atual</div>
+        <div class="diag-card" style="text-align:center;color:var(--text-muted);font-size:12px;padding:16px">
+          Nenhum projeto ativo
+        </div>
+      </div>
+    `;
+  }
+
+  // === Todos os projetos ===
+  const allProjects = Object.keys(state.projects);
+  const totalProjects = allProjects.length;
+  const totalRoutePoints = allProjects.reduce((a, n) => a + state.projects[n].segments.reduce((b, s) => b + s.length, 0), 0);
+  const totalWarnings = allProjects.reduce((a, n) => a + state.projects[n].warnings.length, 0);
+  const totalPerimeters = allProjects.reduce((a, n) => a + (state.projects[n].perimeters || []).length, 0);
+
+  // === Ambiente ===
+  const ua = navigator.userAgent;
+  let browser = 'Desconhecido';
+  if (/Chrome/i.test(ua) && !/Edg/i.test(ua)) browser = 'Chrome';
+  else if (/Safari/i.test(ua) && !/Chrome/i.test(ua)) browser = 'Safari';
+  else if (/Firefox/i.test(ua)) browser = 'Firefox';
+  else if (/Edg/i.test(ua)) browser = 'Edge';
+
+  const platform = /Android/i.test(ua) ? 'Android' :
+                   /iPhone|iPad/i.test(ua) ? 'iOS' :
+                   /Windows/i.test(ua) ? 'Windows' :
+                   /Mac/i.test(ua) ? 'macOS' : 'Outro';
+
+  const gpsStatus = state.position ? 'Ativo' : 'Sem sinal';
+  const gpsClass = state.position ? 'good' : 'warn';
+  const accuracy = state.position ? Math.round(state.position.accuracy) + 'm' : '—';
+
+  // Versão da aplicação
+  const APP_VERSION = '1.5';
+
+  container.innerHTML = `
+    <div class="diag-section">
+      <div class="diag-section-title">Armazenamento Local</div>
+      <div class="diag-card">
+        <div class="diag-row">
+          <span class="diag-row-label">Em uso</span>
+          <span class="diag-row-value ${storageClass}">${formatBytes(storageBytes)}</span>
+        </div>
+        <div class="diag-row">
+          <span class="diag-row-label">Limite recomendado</span>
+          <span class="diag-row-value">${LIMITS.STORAGE_HARD_MB} MB</span>
+        </div>
+        <div class="diag-row">
+          <span class="diag-row-label">Status</span>
+          <span class="diag-row-value ${storageClass}">${storageStatus}</span>
+        </div>
+        <div class="diag-bar-container">
+          <div class="diag-bar-fill ${storageClass}" style="width:${storagePct}%"></div>
+        </div>
+      </div>
+      ${storageMB >= LIMITS.STORAGE_SOFT_MB ? `
+        <div class="diag-note">
+          <strong>⚠️ Atenção:</strong> Uso acima de ${LIMITS.STORAGE_SOFT_MB} MB. Considere exportar projetos antigos em GeoPackage e depois excluí-los para liberar espaço.
+        </div>
+      ` : ''}
+    </div>
+
+    ${projSection}
+
+    <div class="diag-section">
+      <div class="diag-section-title">Resumo Geral</div>
+      <div class="diag-card">
+        <div class="diag-row">
+          <span class="diag-row-label">Total de projetos</span>
+          <span class="diag-row-value">${totalProjects}</span>
+        </div>
+        <div class="diag-row">
+          <span class="diag-row-label">Total de vértices de rota</span>
+          <span class="diag-row-value">${totalRoutePoints.toLocaleString('pt-BR')}</span>
+        </div>
+        <div class="diag-row">
+          <span class="diag-row-label">Total de interdições</span>
+          <span class="diag-row-value">${totalWarnings}</span>
+        </div>
+        <div class="diag-row">
+          <span class="diag-row-label">Total de perímetros KMZ</span>
+          <span class="diag-row-value">${totalPerimeters}</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="diag-section">
+      <div class="diag-section-title">Limites & Performance</div>
+      <div class="diag-card">
+        <div class="diag-row">
+          <span class="diag-row-label">KMZ: tamanho máx. do arquivo</span>
+          <span class="diag-row-value">${LIMITS.KMZ_MAX_FILE_MB} MB</span>
+        </div>
+        <div class="diag-row">
+          <span class="diag-row-label">KMZ: features recomendado</span>
+          <span class="diag-row-value">até ${LIMITS.KMZ_SOFT_FEATURES.toLocaleString('pt-BR')}</span>
+        </div>
+        <div class="diag-row">
+          <span class="diag-row-label">KMZ: features máximo</span>
+          <span class="diag-row-value">${LIMITS.KMZ_HARD_FEATURES.toLocaleString('pt-BR')}</span>
+        </div>
+        <div class="diag-row">
+          <span class="diag-row-label">Interdições (por projeto)</span>
+          <span class="diag-row-value">até ${LIMITS.WARNINGS_SOFT} suave / ${LIMITS.WARNINGS_HARD} máx</span>
+        </div>
+        <div class="diag-row">
+          <span class="diag-row-label">Rota: vértices suave</span>
+          <span class="diag-row-value">${LIMITS.ROUTE_SOFT_POINTS.toLocaleString('pt-BR')}</span>
+        </div>
+        <div class="diag-row">
+          <span class="diag-row-label">Rota: vértices máximo</span>
+          <span class="diag-row-value">${LIMITS.ROUTE_HARD_POINTS.toLocaleString('pt-BR')}</span>
+        </div>
+        <div class="diag-row">
+          <span class="diag-row-label">Simplificação Douglas-Peucker</span>
+          <span class="diag-row-value good">Ativa (${LIMITS.ROUTE_SIMPLIFY_TOLERANCE_M}m)</span>
+        </div>
+      </div>
+      <div class="diag-note">
+        <strong>Rotas longas:</strong> o sistema aplica simplificação automática Douglas-Peucker quando o segmento ultrapassa ${LIMITS.ROUTE_SIMPLIFY_TRIGGER.toLocaleString('pt-BR')} vértices. Reduz pontos redundantes em trechos retos mantendo a forma dentro de ${LIMITS.ROUTE_SIMPLIFY_TOLERANCE_M}m de tolerância — suporta rotas de 1.000+ km sem travamento.
+      </div>
+      <div class="diag-note" style="border-left-color:var(--brand-orange);background:rgba(245,161,61,0.06)">
+        Valores <strong>suave</strong> = performance garantida.
+        Valores <strong>máximo</strong> = possível lentidão em celulares modestos.
+        Acima do máximo: risco de travamento ao abrir/exportar.
+      </div>
+    </div>
+
+    <div class="diag-section">
+      <div class="diag-section-title">Ambiente</div>
+      <div class="diag-card">
+        <div class="diag-row">
+          <span class="diag-row-label">Plataforma</span>
+          <span class="diag-row-value">${platform}</span>
+        </div>
+        <div class="diag-row">
+          <span class="diag-row-label">Navegador</span>
+          <span class="diag-row-value">${browser}</span>
+        </div>
+        <div class="diag-row">
+          <span class="diag-row-label">GPS</span>
+          <span class="diag-row-value ${gpsClass}">${gpsStatus}</span>
+        </div>
+        <div class="diag-row">
+          <span class="diag-row-label">Precisão atual</span>
+          <span class="diag-row-value">${accuracy}</span>
+        </div>
+        <div class="diag-row">
+          <span class="diag-row-label">Bússola</span>
+          <span class="diag-row-value">${state.orientationActive ? 'Ativa' : 'Inativa'}</span>
+        </div>
+        <div class="diag-row">
+          <span class="diag-row-label">Tela</span>
+          <span class="diag-row-value">${window.innerWidth}×${window.innerHeight}</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="diag-footer">
+      <strong>Atta'M GeoTrace v${APP_VERSION}</strong><br>
+      Mapeamento de campo · GeoPackage (OGC) · KMZ/KML<br>
+      Mapas: © OpenStreetMap contributors<br>
+      Dados armazenados localmente no dispositivo
+    </div>
+  `;
+}
+
+function renderPerimeterList() {
+  const list = document.getElementById('perimeterList');
+  if (!state.currentProject) {
+    list.innerHTML = `<p style="color:var(--text-muted);font-size:13px;text-align:center;padding:20px">Nenhum projeto selecionado</p>`;
+    return;
+  }
+  const proj = state.projects[state.currentProject];
+  const perims = proj.perimeters || [];
+  if (perims.length === 0) {
+    list.innerHTML = `<p style="color:var(--text-muted);font-size:13px;text-align:center;padding:20px">Nenhum perímetro carregado.<br>Toque em "+ Importar KMZ / KML" acima.</p>`;
+    return;
+  }
+  list.innerHTML = perims.map(p => {
+    const date = new Date(p.addedAt).toLocaleDateString('pt-BR');
+    return `
+      <div class="perimeter-item">
+        <div class="perimeter-item-info">
+          <div class="perimeter-item-name">${escapeHtml(p.name)}</div>
+          <div class="perimeter-item-meta">${p.features.length} feat · ${date}</div>
+        </div>
+        <button class="perimeter-delete-btn" data-id="${p.id}" aria-label="Remover">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+        </button>
+      </div>
+    `;
+  }).join('');
+
+  list.querySelectorAll('.perimeter-delete-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = btn.dataset.id;
+      const perim = perims.find(p => p.id === id);
+      if (!perim) return;
+      if (confirm(`Remover "${perim.name}"?`)) {
+        removePerimeterById(id);
+        renderPerimeterList();
+        toast('Perímetro removido', 'success');
+      }
+    });
+  });
+}
+
+// ====================== UI: MODALS ======================
+function openModal(id) { document.getElementById(id).classList.add('active'); }
+function closeModal(id) { document.getElementById(id).classList.remove('active'); }
+
+function openNewProjectModal() {
+  document.getElementById('newProjectInput').value = '';
+  openModal('newProjectModal');
+  setTimeout(() => document.getElementById('newProjectInput').focus(), 100);
+}
+
+function renderProjectList() {
+  const list = document.getElementById('projectList');
+  const names = Object.keys(state.projects).sort((a,b) =>
+    new Date(state.projects[b].createdAt) - new Date(state.projects[a].createdAt)
+  );
+  if (names.length === 0) {
+    list.innerHTML = `<p style="color:var(--text-muted);font-size:13px;text-align:center;padding:20px">Nenhum projeto ainda</p>`;
+    return;
+  }
+  list.innerHTML = names.map(n => {
+    const p = state.projects[n];
+    const d = formatDistance(p.distance);
+    const active = n === state.currentProject;
+    return `
+      <div class="project-item" data-name="${n}" style="${active ? 'border-color:var(--accent);background:rgba(59,130,246,0.08)' : ''}">
+        <div style="flex:1;min-width:0;overflow:hidden">
+          <div class="pname" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${n}${active ? ' ●' : ''}</div>
+          <div class="pmeta">${d.val}${d.unit} · ${p.warnings.length}⚠</div>
+        </div>
+        <div class="project-item-actions">
+          <button class="project-item-btn" data-action="switch" data-name="${n}" aria-label="Ativar">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+          </button>
+          <button class="project-item-btn danger" data-action="delete" data-name="${n}" aria-label="Excluir">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+          </button>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  list.querySelectorAll('[data-action]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const act = btn.dataset.action;
+      const name = btn.dataset.name;
+      if (act === 'switch') { switchProject(name); closeModal('projectsListModal'); }
+      else if (act === 'delete') { deleteProject(name); }
+    });
+  });
+}
+
+// ====================== EVENT WIRING ======================
+function wireEvents() {
+  // Welcome — agora tenta restaurar sessão antes
+  document.getElementById('startBtn').addEventListener('click', async () => {
+    document.getElementById('welcomeScreen').classList.add('hidden');
+
+    // Tentar restaurar sessão salva
+    const hasSession = await restoreSession();
+    if (hasSession) {
+      // Já autenticado — entra direto
+      state.followUser = state.settings.followUser;
+      initMap();
+      startGPS();
+      await startOrientation();
+
+      // Carregar dados da nuvem
+      sync.loadQueue();
+      await sync.initialLoad();
+      sync.startRealtimeSubscription();
+      sync.drain(); // drena fila pendente se houver
+
+      loadProjectOnMap();
+      updateProjectUI();
+      updateStats();
+      updateRecordButton();
+      updateLocateBtn();
+      updateUserBadge();
+    } else {
+      // Sem sessão — pede login
+      requireAuth(async () => {
+        state.followUser = state.settings.followUser;
+        initMap();
+        startGPS();
+        await startOrientation();
+
+        sync.loadQueue();
+        // initialLoad e startRealtime já são chamados no submitPassword
+        loadProjectOnMap();
+        updateProjectUI();
+        updateStats();
+        updateRecordButton();
+        updateLocateBtn();
+        updateUserBadge();
+      });
+    }
+  });
+
+  // Password modal handlers
+  document.getElementById('submitPasswordBtn').addEventListener('click', submitPassword);
+  document.getElementById('passwordInput').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') submitPassword();
+  });
+  document.getElementById('emailInput').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') document.getElementById('passwordInput').focus();
+  });
+
+  // User dropdown toggle
+  document.getElementById('userBtn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    const dd = document.getElementById('userDropdown');
+    dd.classList.toggle('show');
+    if (dd.classList.contains('show')) {
+      document.getElementById('userEmail').textContent = currentUser ? currentUser.email : '—';
+    }
+  });
+  document.addEventListener('click', () => {
+    document.getElementById('userDropdown').classList.remove('show');
+  });
+
+  // Zoom
+  document.getElementById('zoomIn').addEventListener('click', () => state.map.zoomIn());
+  document.getElementById('zoomOut').addEventListener('click', () => state.map.zoomOut());
+
+  // Locate / follow
+  document.getElementById('locateBtn').addEventListener('click', () => {
+    state.followUser = true;
+    updateLocateBtn();
+    if (state.position) state.map.setView([state.position.lat, state.position.lng], Math.max(state.map.getZoom(), 17));
+  });
+
+  // Compass / Nav mode
+  // Record
+  document.getElementById('recordBtn').addEventListener('click', toggleRecording);
+
+  // Long-press on record to stop
+  let recPressTimer = null;
+  const recBtn = document.getElementById('recordBtn');
+  recBtn.addEventListener('touchstart', () => {
+    recPressTimer = setTimeout(() => {
+      if (state.recording) {
+        if (confirm('Finalizar gravação? O tempo será zerado.')) stopRecording();
+      }
+      recPressTimer = null;
+    }, 900);
+  });
+  recBtn.addEventListener('touchend', () => { if (recPressTimer) clearTimeout(recPressTimer); });
+  recBtn.addEventListener('touchmove', () => { if (recPressTimer) clearTimeout(recPressTimer); });
+
+  // Warning / Obstacle — 2-step placement
+  document.getElementById('warningBtn').addEventListener('click', toggleObstaclePlacement);
+  document.getElementById('cancelPlacement').addEventListener('click', (e) => {
+    e.stopPropagation();
+    cancelObstaclePlacement();
+    toast('Cancelado');
+  });
+
+  // Projects
+  document.getElementById('projectsBtn').addEventListener('click', () => {
+    renderProjectList();
+    openModal('projectsListModal');
+  });
+  document.getElementById('closeProjectsList').addEventListener('click', () => closeModal('projectsListModal'));
+  document.getElementById('openNewProject').addEventListener('click', () => {
+    closeModal('projectsListModal');
+    openNewProjectModal();
+  });
+  document.getElementById('closeNewProject').addEventListener('click', () => closeModal('newProjectModal'));
+  document.getElementById('createProjectBtn').addEventListener('click', () => {
+    const name = document.getElementById('newProjectInput').value.trim();
+    if (!name) { toast('Informe um nome', 'warning'); return; }
+    createProject(name);
+    closeModal('newProjectModal');
+  });
+  document.getElementById('newProjectInput').addEventListener('keydown', e => {
+    if (e.key === 'Enter') document.getElementById('createProjectBtn').click();
+  });
+
+  // Tap on project pill opens new-project quickly
+  document.getElementById('projectPill').addEventListener('click', () => {
+    if (!state.currentProject) openNewProjectModal();
+    else { renderProjectList(); openModal('projectsListModal'); }
+  });
+
+  // Menu
+  document.getElementById('menuBtn').addEventListener('click', () => openModal('menuModal'));
+  document.getElementById('closeMenu').addEventListener('click', () => closeModal('menuModal'));
+
+  // Settings
+  document.getElementById('settingsBtn').addEventListener('click', () => {
+    // Sincronizar controles com state atual antes de abrir
+    document.getElementById('toggleAskDescription').checked = state.settings.askDescription;
+    document.getElementById('toggleFollow').checked = state.settings.followUser;
+    const sliderVal = Math.round(state.settings.kmzFillOpacity * 100);
+    document.getElementById('sliderOpacity').value = sliderVal;
+    document.getElementById('opacityValue').textContent = sliderVal + '%';
+    // Slider Kalman
+    const kVal = state.settings.kalmanNoise || 3.0;
+    document.getElementById('sliderKalman').value = kVal;
+    document.getElementById('kalmanValue').textContent = kVal.toFixed(1);
+    openModal('settingsModal');
+  });
+  document.getElementById('closeSettings').addEventListener('click', () => closeModal('settingsModal'));
+
+  document.getElementById('toggleAskDescription').addEventListener('change', (e) => {
+    state.settings.askDescription = e.target.checked;
+    saveState();
+    toast(e.target.checked ? 'Descrição será solicitada' : 'Descrição desativada', 'success');
+  });
+
+  document.getElementById('toggleFollow').addEventListener('change', (e) => {
+    state.settings.followUser = e.target.checked;
+    state.followUser = e.target.checked;
+    updateLocateBtn();
+    saveState();
+    if (e.target.checked && state.position) {
+      state.map.panTo([state.position.lat, state.position.lng]);
+    }
+  });
+
+  // Slider de opacidade dos perímetros (tempo real)
+  document.getElementById('sliderOpacity').addEventListener('input', (e) => {
+    const pct = parseInt(e.target.value, 10);
+    document.getElementById('opacityValue').textContent = pct + '%';
+    state.settings.kmzFillOpacity = pct / 100;
+    refreshPerimeterStyles();
+  });
+  document.getElementById('sliderOpacity').addEventListener('change', () => {
+    saveState();
+  });
+
+  // Slider Kalman (em tempo real — afeta imediatamente gravação em andamento)
+  document.getElementById('sliderKalman').addEventListener('input', (e) => {
+    const v = parseFloat(e.target.value);
+    document.getElementById('kalmanValue').textContent = v.toFixed(1);
+    state.settings.kalmanNoise = v;
+    kalmanProcessNoise = v;
+  });
+  document.getElementById('sliderKalman').addEventListener('change', () => {
+    saveState();
+    toast('Filtro Kalman ajustado', 'success');
+  });
+
+  document.getElementById('exportBtn').addEventListener('click', () => { exportProject(); closeModal('menuModal'); });
+
+  // Perímetros (KMZ) — modal dedicado para múltiplos
+  document.getElementById('openPerimetersBtn').addEventListener('click', () => {
+    if (!state.currentProject) { toast('Selecione um projeto primeiro', 'warning'); return; }
+    closeModal('menuModal');
+    renderPerimeterList();
+    openModal('perimetersModal');
+  });
+  document.getElementById('closePerimeters').addEventListener('click', () => closeModal('perimetersModal'));
+  document.getElementById('addPerimeterBtn').addEventListener('click', () => {
+    document.getElementById('kmzFileInput').click();
+  });
+  document.getElementById('kmzFileInput').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      await importKmzFile(file);
+      renderPerimeterList(); // atualiza a lista após importar
+    }
+    e.target.value = '';
+  });
+
+  document.getElementById('clearWarningsBtn').addEventListener('click', () => { clearWarnings(); closeModal('menuModal'); });
+  document.getElementById('fitRouteBtn').addEventListener('click', () => {
+    if (!state.currentProject) return;
+    const all = [];
+    state.projects[state.currentProject].segments.forEach(s => s.forEach(p => all.push([p.lat, p.lng])));
+    if (all.length === 0) { toast('Sem rota para enquadrar', 'warning'); return; }
+    state.map.fitBounds(L.latLngBounds(all), { padding: [60, 60] });
+    state.followUser = false;
+    updateLocateBtn();
+    closeModal('menuModal');
+  });
+  document.getElementById('aboutBtn').addEventListener('click', () => {
+    renderDiagnostic();
+    closeModal('menuModal');
+    openModal('diagnosticModal');
+  });
+  document.getElementById('closeDiagnostic').addEventListener('click', () => closeModal('diagnosticModal'));
+  document.getElementById('refreshDiagnosticBtn').addEventListener('click', renderDiagnostic);
+
+  // Close modals on backdrop tap
+  document.querySelectorAll('.modal-backdrop').forEach(bg => {
+    bg.addEventListener('click', e => { if (e.target === bg) bg.classList.remove('active'); });
+  });
+
+  // Keep screen awake-ish: vibrate subtly on record start (if supported)
+  // Re-apply map rotation if window resizes
+  window.addEventListener('resize', () => {
+    if (state.map) state.map.invalidateSize();
+  });
+}
+
+// ====================== INIT ======================
+loadState();
+wireEvents();
+</script>
+</body>
+</html>
