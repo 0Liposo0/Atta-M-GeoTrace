@@ -1584,7 +1584,8 @@ const sync = {
         this.saveQueue();
         this.updateStatusUI();
       } catch (e) {
-        console.error('Sync op failed:', op, e);
+        const errMsg = e?.message || e?.error_description || e?.error || JSON.stringify(e);
+        console.error(`Sync op failed [${op.type}] status=${e?.status} code=${e?.code}:`, errMsg, op);
         // Erro de rede: para de tentar e mantém a op na fila para retry
         if (e.message && (e.message.includes('Failed to fetch') || e.message.includes('NetworkError'))) {
           this.isOnline = false;
@@ -1633,12 +1634,12 @@ const sync = {
   },
 
   async opCreateProject(op) {
-    const { data, error } = await sb.from('projects').insert({
+    const { error } = await sb.from('projects').upsert({
       id: op.projectId,
       name: op.name,
       created_by: currentUser.id,
-    }).select().single();
-    if (error) throw error;
+    }, { onConflict: 'id', ignoreDuplicates: true });
+    if (error && error.code !== '23505' && error.status !== 409) throw error;
     this.projectIdByName[op.name] = op.projectId;
   },
 
@@ -1663,7 +1664,10 @@ const sync = {
       created_by: currentUser.id,
       created_by_name: currentUserName,
     });
-    if (error && error.code !== '23505') throw error; // ignora duplicatas
+    // 409 HTTP (status) = 23505 PostgreSQL (unique_violation). O Supabase JS v2
+    // pode entregar o código como string '23505' ou como status HTTP numérico 409
+    // dependendo da versão e do tipo de erro. Tratamos ambos.
+    if (error && error.code !== '23505' && error.status !== 409) throw error;
   },
 
   async opDeleteItem(op) {
