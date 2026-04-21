@@ -1591,9 +1591,42 @@ const sync = {
           this.isOnline = false;
           break;
         }
-        // Erros não-rede (ex: RLS, schema, rate limit): incrementa contador
-        // e só descarta após MAX_ATTEMPTS. Evita perder rotas silenciosamente
-        // por um erro transitório do servidor.
+
+        // AUTO-CURA para 23503 (foreign_key_violation) em add_item:
+        // O projeto referenciado não existe na nuvem. Isso acontece quando a op
+        // create_project foi descartada por erro antigo. Re-enfileiramos o
+        // create_project na frente e tentamos de novo na próxima rodada.
+        if (e?.code === '23503' && op.type === 'add_item') {
+          const projectId = op.projectId;
+          let matchedName = null;
+          for (const [name, proj] of Object.entries(state.projects)) {
+            if (proj?._id === projectId || this.projectIdByName[name] === projectId) {
+              matchedName = name; break;
+            }
+          }
+          if (matchedName && !this.queue.some(q => q.type === 'create_project' && q.projectId === projectId)) {
+            console.warn(`Auto-cura: inserindo create_project para "${matchedName}" antes do add_item órfão`);
+            this.queue.unshift({
+              type: 'create_project',
+              projectId,
+              name: matchedName,
+              enqueuedAt: Date.now(),
+            });
+            this.saveQueue();
+            continue;
+          }
+          if (!matchedName) {
+            console.warn(`add_item órfão (projeto ${projectId} não existe localmente) — descartando`);
+            this.queue.shift();
+            this.saveQueue();
+            continue;
+          }
+        }
+
+        // Erros não-rede genéricos (ex: RLS, schema, rate limit): incrementa
+        // contador e só descarta após MAX_ATTEMPTS. Move a op para o FINAL da
+        // fila para não bloquear as outras — assim uma op ruim não trava toda
+        // a sincronização.
         op._attempts = (op._attempts || 0) + 1;
         const MAX_ATTEMPTS = 5;
         if (op._attempts >= MAX_ATTEMPTS) {
@@ -1601,11 +1634,16 @@ const sync = {
           this.queue.shift();
           this.saveQueue();
           toast(`Falha ao sincronizar ${op.type} após ${MAX_ATTEMPTS} tentativas — verifique console`, 'warning');
-        } else {
-          this.saveQueue();
-          // Sai do loop para tentar novamente mais tarde (próxima chamada drain())
-          break;
+          continue;
         }
+        // Move para o fim da fila: permite que outras ops tentem drenar
+        this.queue.shift();
+        this.queue.push(op);
+        this.saveQueue();
+        // Condição de parada: se TODAS as ops restantes já foram tentadas
+        // neste ciclo, para para evitar loop infinito. Próxima chamada a
+        // drain() (por ex. novo enqueue ou reconexão) continua.
+        if (this.queue.every(q => (q._attempts || 0) > 0)) break;
       }
     }
 
