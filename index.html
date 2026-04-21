@@ -1521,8 +1521,18 @@ function loadState() {
         state.settings = { ...state.settings, ...data.settings };
       }
       // Migração: garantir que todo projeto tenha o campo perimeters
+      // + restaurar seg._itemId a partir de seg[0]._segItemId (JSON não
+      //   preserva propriedades não-numéricas em Arrays; a cópia durável
+      //   fica no primeiro ponto do segmento e é relida aqui).
       Object.values(state.projects).forEach(p => {
         if (!Array.isArray(p.perimeters)) p.perimeters = [];
+        if (Array.isArray(p.segments)) {
+          p.segments.forEach(seg => {
+            if (Array.isArray(seg) && seg.length > 0 && seg[0]._segItemId) {
+              seg._itemId = seg[0]._segItemId; // restaura atalho em-memória
+            }
+          });
+        }
       });
     }
     // Aplicar valor Kalman salvo à variável global usada pelo filtro
@@ -1766,7 +1776,7 @@ const sync = {
 
         if (item.kind === 'route_segment') {
           const seg = payload.points || [];
-          seg._itemId = item.id;
+          segSetItemId(seg, item.id);
           proj.segments.push(seg);
         } else if (item.kind === 'warning') {
           proj.warnings.push({
@@ -1838,7 +1848,7 @@ const sync = {
           if (seg._itemId) continue;
 
           const itemId = crypto.randomUUID();
-          seg._itemId = itemId;
+          segSetItemId(seg, itemId);
           let segDist = 0;
           for (let i = 1; i < seg.length; i++) {
             segDist += haversine(seg[i-1].lat, seg[i-1].lng, seg[i].lat, seg[i].lng);
@@ -1982,7 +1992,7 @@ const sync = {
       const payload_ = row.payload;
       if (row.kind === 'route_segment') {
         const seg = payload_.points || [];
-        seg._itemId = row.id;
+        segSetItemId(seg, row.id);
         proj.segments.push(seg);
         if (isCurrentProj && seg.length >= 2) {
           const pl = L.polyline(seg.map(p => [p.lat, p.lng]), {
@@ -2076,6 +2086,40 @@ window.addEventListener('offline', () => {
 });
 
 // ====================== UTILS ======================
+
+// ---------------------------------------------------------------------------
+// Helpers para _itemId de segmentos
+// ---------------------------------------------------------------------------
+// PROBLEMA: segmentos são Arrays. Propriedades não-numéricas em Arrays
+// (ex: seg._itemId = 'abc') são silenciosamente descartadas pelo
+// JSON.stringify → JSON.parse. Isso fazia o recovery do initialLoad
+// enxergar TODOS os segmentos como "não-sincronizados" a cada abertura,
+// gerando duplicação exponencial no Supabase (N → 2N → 4N → 8N…).
+//
+// SOLUÇÃO: persistir o _itemId dentro de seg[0]._segItemId (objetos
+// preservam propriedades customizadas no JSON). A propriedade em-memória
+// seg._itemId é restaurada por loadState() logo após o parse, para que
+// todo o restante do código continue lendo seg._itemId normalmente.
+// ---------------------------------------------------------------------------
+
+/** Lê o itemId do segmento — prefere a cópia persistente em seg[0]. */
+function segGetItemId(seg) {
+  if (!seg) return null;
+  if (seg.length > 0 && seg[0]._segItemId) return seg[0]._segItemId;
+  return seg._itemId || null;
+}
+
+/**
+ * Grava o itemId no segmento de forma durável.
+ *  • seg[0]._segItemId  → sobrevive a JSON.stringify / parse
+ *  • seg._itemId        → atalho em-memória para a sessão atual
+ * Ambos são mantidos em sincronia por esta função.
+ */
+function segSetItemId(seg, id) {
+  seg._itemId = id;                          // em-memória (sessão atual)
+  if (seg.length > 0) seg[0]._segItemId = id; // durável (persiste no JSON)
+}
+
 function toast(msg, type = '') {
   const el = document.getElementById('toast');
   el.textContent = msg;
@@ -2708,7 +2752,7 @@ function stopRecording() {
       proj.segments.forEach(seg => {
         if (seg.length < 2 || seg._itemId) return; // ignora vazios e já sincronizados
         const itemId = crypto.randomUUID();
-        seg._itemId = itemId;
+        segSetItemId(seg, itemId);
         // Calcular distância do segmento
         let segDist = 0;
         for (let i = 1; i < seg.length; i++) {
@@ -2783,7 +2827,7 @@ function checkpointCurrentSegment() {
   if (!projectId) return false;
 
   const itemId = crypto.randomUUID();
-  seg._itemId = itemId;
+  segSetItemId(seg, itemId);
 
   let segDist = 0;
   for (let i = 1; i < seg.length; i++) {
