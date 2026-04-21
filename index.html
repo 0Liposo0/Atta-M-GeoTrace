@@ -1480,6 +1480,7 @@ async function restoreSession() {
 // ====================== PERSISTENCE ======================
 const STORAGE_KEY = 'fieldmapper_v1';
 
+let _quotaToastShown = false;
 function saveState() {
   try {
     const data = {
@@ -1488,7 +1489,25 @@ function saveState() {
       settings: state.settings,
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-  } catch (e) { console.error('Save failed', e); }
+  } catch (e) {
+    // QuotaExceededError: localStorage cheio (5-10 MB típico em mobile).
+    // Não silencia — o usuário precisa saber para exportar e liberar espaço
+    // antes que a rota em andamento seja perdida ao fechar o navegador.
+    const isQuota = e && (
+      e.name === 'QuotaExceededError' ||
+      e.code === 22 || e.code === 1014 ||
+      /quota|exceeded/i.test(e.message || '')
+    );
+    if (isQuota) {
+      console.error('localStorage cheio', e);
+      if (!_quotaToastShown) {
+        _quotaToastShown = true;
+        toast('Armazenamento local cheio — exporte projetos antigos (GeoPackage) e delete para liberar espaço', 'warning');
+      }
+    } else {
+      console.error('Save failed', e);
+    }
+  }
 }
 
 function loadState() {
@@ -1566,14 +1585,26 @@ const sync = {
         this.updateStatusUI();
       } catch (e) {
         console.error('Sync op failed:', op, e);
-        // Se foi erro de rede, para de tentar
+        // Erro de rede: para de tentar e mantém a op na fila para retry
         if (e.message && (e.message.includes('Failed to fetch') || e.message.includes('NetworkError'))) {
           this.isOnline = false;
           break;
         }
-        // Outros erros: pula a operação para não travar a fila
-        this.queue.shift();
-        this.saveQueue();
+        // Erros não-rede (ex: RLS, schema, rate limit): incrementa contador
+        // e só descarta após MAX_ATTEMPTS. Evita perder rotas silenciosamente
+        // por um erro transitório do servidor.
+        op._attempts = (op._attempts || 0) + 1;
+        const MAX_ATTEMPTS = 5;
+        if (op._attempts >= MAX_ATTEMPTS) {
+          console.error(`Operação descartada após ${MAX_ATTEMPTS} tentativas`, op);
+          this.queue.shift();
+          this.saveQueue();
+          toast(`Falha ao sincronizar ${op.type} após ${MAX_ATTEMPTS} tentativas — verifique console`, 'warning');
+        } else {
+          this.saveQueue();
+          // Sai do loop para tentar novamente mais tarde (próxima chamada drain())
+          break;
+        }
       }
     }
 
@@ -1716,11 +1747,80 @@ const sync = {
         }
       }
 
+      // RECOVERY PASS — antes de substituir o state local pelo que veio da
+      // nuvem, preserva:
+      //   (a) projetos inteiros que só existem localmente (create_project
+      //       ainda não drenou) — evita "sumirem" após reload;
+      //   (b) segmentos locais sem _itemId (gravação em andamento interrompida
+      //       por crash ou reload) — re-adiciona ao projeto e enfileira sync.
+      let recoveredSegments = 0;
+      const prevLocal = state.projects || {};
+
+      // (a) Projetos só-locais
+      for (const [name, proj] of Object.entries(prevLocal)) {
+        if (!proj) continue;
+        if (!newProjects[name]) {
+          newProjects[name] = proj;
+          if (proj._id) idByName[name] = proj._id;
+        }
+      }
+
+      // (b) Segmentos não-sincronizados
+      const localUnsyncedByName = {};
+      for (const [name, proj] of Object.entries(prevLocal)) {
+        if (!proj || !Array.isArray(proj.segments)) continue;
+        const unsynced = proj.segments.filter(
+          s => Array.isArray(s) && s.length >= 2 && !s._itemId
+        );
+        if (unsynced.length > 0) localUnsyncedByName[name] = unsynced;
+      }
+
       state.projects = newProjects;
       this.projectIdByName = idByName;
 
+      // Re-anexa segmentos recuperados ao state final e enfileira para envio
+      for (const [name, unsyncedSegs] of Object.entries(localUnsyncedByName)) {
+        const proj = state.projects[name];
+        if (!proj) continue;
+        const projectId = this.projectIdByName[name];
+        for (const seg of unsyncedSegs) {
+          // Evita re-adicionar se o mesmo segmento já está na lista (preservado
+          // no passo "a" acima, quando o projeto era só-local).
+          if (!proj.segments.includes(seg)) proj.segments.push(seg);
+          recoveredSegments++;
+
+          // Só pode enfileirar add_item se já temos projectId na nuvem.
+          // Se for projeto só-local, o create_project na fila vai drenar
+          // primeiro e numa próxima passada o segmento será enviado.
+          if (!projectId) continue;
+          if (seg._itemId) continue;
+
+          const itemId = crypto.randomUUID();
+          seg._itemId = itemId;
+          let segDist = 0;
+          for (let i = 1; i < seg.length; i++) {
+            segDist += haversine(seg[i-1].lat, seg[i-1].lng, seg[i].lat, seg[i].lng);
+          }
+          this.enqueue({
+            type: 'add_item', itemId, projectId, kind: 'route_segment',
+            payload: {
+              points: seg.map(p => ({ lat: p.lat, lng: p.lng, t: p.t })),
+              created_at: new Date().toISOString(),
+              distance_m: segDist,
+            }
+          });
+        }
+        if (projectId) {
+          this.enqueue({
+            type: 'update_project_distance',
+            projectId,
+            distance: proj.distance || 0,
+          });
+        }
+      }
+
       // Se tinha projeto aberto local e ele ainda existe, mantém; senão fecha
-      if (state.currentProject && !newProjects[state.currentProject]) {
+      if (state.currentProject && !state.projects[state.currentProject]) {
         state.currentProject = null;
         clearProjectLayers();
       } else if (state.currentProject) {
@@ -1733,6 +1833,13 @@ const sync = {
       updateProjectUI();
       this.lastSyncAt = Date.now();
       this.updateStatusUI();
+
+      if (recoveredSegments > 0) {
+        toast(
+          `Recuperada${recoveredSegments > 1 ? 's' : ''} ${recoveredSegments} sub-rota(s) local(is) — enviando para nuvem`,
+          'warning'
+        );
+      }
     } catch (e) {
       console.error('Initial load failed', e);
       this.updateStatusUI('Erro ao carregar da nuvem');
@@ -2617,6 +2724,56 @@ function startNewSegment() {
   state.lastRoutePoint = null;
 }
 
+// Fecha o segmento atual (se tiver ≥2 pontos e ainda não foi sincronizado),
+// enfileira para a nuvem e inicia NOVO segmento começando no último ponto —
+// mantendo continuidade visual e de distância. Chamado automaticamente em
+// rotas longas para evitar perda em caso de crash do navegador.
+function checkpointCurrentSegment() {
+  if (!state.recording || !state.currentProject) return false;
+  const proj = state.projects[state.currentProject];
+  if (!proj) return false;
+  const seg = state.currentSegment;
+  if (!seg || seg.length < 2 || seg._itemId) return false;
+
+  const projectId = sync.projectIdByName[state.currentProject];
+  // Sem projectId na nuvem, o checkpoint não faz sentido ainda — a op
+  // create_project precisa ter drenado primeiro. Espera o próximo tick.
+  if (!projectId) return false;
+
+  const itemId = crypto.randomUUID();
+  seg._itemId = itemId;
+
+  let segDist = 0;
+  for (let i = 1; i < seg.length; i++) {
+    segDist += haversine(seg[i-1].lat, seg[i-1].lng, seg[i].lat, seg[i].lng);
+  }
+
+  sync.enqueue({
+    type: 'add_item', itemId, projectId, kind: 'route_segment',
+    payload: {
+      points: seg.map(p => ({ lat: p.lat, lng: p.lng, t: p.t })),
+      created_at: new Date().toISOString(),
+      distance_m: segDist,
+    }
+  });
+  sync.enqueue({
+    type: 'update_project_distance',
+    projectId,
+    distance: proj.distance
+  });
+
+  // Continuidade: o novo segmento começa no último ponto do anterior para
+  // que o Leaflet desenhe a polyline sem quebra visual. state.lastRoutePoint
+  // já aponta para esse ponto, então o cálculo de distância segue correto.
+  const lastPoint = seg[seg.length - 1];
+  const newSeg = [{ lat: lastPoint.lat, lng: lastPoint.lng, t: lastPoint.t }];
+  proj.segments.push(newSeg);
+  state.currentSegment = newSeg;
+
+  saveState();
+  return true;
+}
+
 function addPointToRoute(lat, lng, accuracy) {
   if (!state.currentSegment) startNewSegment();
 
@@ -2685,6 +2842,17 @@ function addPointToRoute(lat, lng, accuracy) {
   }
 
   updateStats();
+
+  // Checkpoint automático: se o segmento atual ultrapassou o limite e ainda
+  // não foi sincronizado com a nuvem, envia agora e começa novo segmento.
+  // Garante que rotas longas não fiquem inteiras apenas em localStorage.
+  if (
+    state.currentSegment.length >= LIMITS.CHECKPOINT_POINTS &&
+    !state.currentSegment._itemId
+  ) {
+    checkpointCurrentSegment();
+  }
+
   saveStateThrottled();
 }
 
@@ -3357,6 +3525,11 @@ const LIMITS = {
   // reduzir vértices mantendo a forma. Tolerância em metros.
   ROUTE_SIMPLIFY_TRIGGER: 2000,    // começa a simplificar após N pontos no segmento
   ROUTE_SIMPLIFY_TOLERANCE_M: 1.5, // tolerância em metros (quanto menor, mais fiel)
+  // Checkpoint automático: a cada N pontos gravados no segmento atual, fecha o
+  // segmento, envia para a nuvem (tabela project_items) e inicia novo segmento
+  // mantendo continuidade visual. Protege contra crash do navegador em rotas
+  // longas — o máximo que se perde é ~CHECKPOINT_POINTS pontos recentes.
+  CHECKPOINT_POINTS: 500,          // ~15-25 min de gravação contínua
 };
 
 function countFeaturesInPerimeter(perim) {
@@ -3934,6 +4107,21 @@ function wireEvents() {
   // Re-apply map rotation if window resizes
   window.addEventListener('resize', () => {
     if (state.map) state.map.invalidateSize();
+  });
+
+  // Garantia de persistência antes do navegador fechar/suspender a aba.
+  // saveStateThrottled tem janela de 2s — sem estes handlers, qualquer ponto
+  // dessa janela seria perdido num crash/fechamento. visibilitychange cobre
+  // o caso mobile (usuário troca de app ou bloqueia tela) porque "pagehide"
+  // e "beforeunload" não disparam de forma confiável nesses cenários.
+  const flushOnExit = () => {
+    try { saveState(); } catch(_) {}
+    try { sync.saveQueue(); } catch(_) {}
+  };
+  window.addEventListener('beforeunload', flushOnExit);
+  window.addEventListener('pagehide', flushOnExit);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') flushOnExit();
   });
 }
 
