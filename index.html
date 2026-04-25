@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="manifest" href="manifest.json">
-<link rel="icon" type="image/svg+xml" href="icon-192.svg">
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
 <link rel="apple-touch-icon" href="icon-192.svg">
 <!-- CSP: libera WebAssembly (sql.js) para exportação GeoPackage na Web -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'self' https: data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' https: blob:; style-src 'self' 'unsafe-inline' https:; img-src 'self' data: blob: https:; connect-src 'self' https: wss: data: blob:; worker-src 'self' blob: data:; font-src 'self' https: data:;">
@@ -1559,27 +1559,61 @@ const STORAGE_KEY = 'fieldmapper_v1';
 
 let _quotaToastShown = false;
 function saveState() {
+  const isQuotaError = err => err && (
+    err.name === 'QuotaExceededError' ||
+    err.code === 22 || err.code === 1014 ||
+    /quota|exceeded/i.test(err.message || '')
+  );
   try {
-    const data = {
-      projects: state.projects,
+    // Projetos sincronizados não-ativos: guardar apenas metadados.
+    // A geometria (pontos GPS) fica em memória e é recarregada do Supabase
+    // no próximo login, evitando lotar o localStorage com dados redundantes.
+    const trimmedProjects = {};
+    for (const [name, proj] of Object.entries(state.projects)) {
+      if (!proj) continue;
+      const isActive = name === state.currentProject;
+      const hasUnsynced =
+        (proj.segments   || []).some(s => Array.isArray(s) && s.length >= 2 && !s._itemId) ||
+        (proj.warnings   || []).some(w => !w._itemId) ||
+        (proj.perimeters || []).some(p => !p._itemId);
+      if (isActive || hasUnsynced) {
+        trimmedProjects[name] = proj;
+      } else {
+        // Apenas metadados — geometria já está no Supabase
+        trimmedProjects[name] = {
+          _id: proj._id,
+          _gpkgPath: proj._gpkgPath,
+          distance: proj.distance || 0,
+          createdAt: proj.createdAt,
+          createdBy: proj.createdBy,
+          segments: [],
+          warnings: [],
+          perimeters: [],
+        };
+      }
+    }
+    const json = JSON.stringify({
+      projects: trimmedProjects,
       currentProject: state.currentProject,
       settings: state.settings,
-    };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    });
+    try {
+      localStorage.setItem(STORAGE_KEY, json);
+    } catch (e) {
+      if (isQuotaError(e)) {
+        // localStorage pode estar lotado com versão antiga maior — forçar limpeza e regravar.
+        // json já calculado em memória, remoção não causa perda de dados.
+        localStorage.removeItem(STORAGE_KEY);
+        localStorage.setItem(STORAGE_KEY, json);
+      } else throw e;
+    }
+    _quotaToastShown = false;
   } catch (e) {
-    // QuotaExceededError: localStorage cheio (5-10 MB típico em mobile).
-    // Não silencia — o usuário precisa saber para exportar e liberar espaço
-    // antes que a rota em andamento seja perdida ao fechar o navegador.
-    const isQuota = e && (
-      e.name === 'QuotaExceededError' ||
-      e.code === 22 || e.code === 1014 ||
-      /quota|exceeded/i.test(e.message || '')
-    );
-    if (isQuota) {
+    if (isQuotaError(e)) {
       console.error('localStorage cheio', e);
       if (!_quotaToastShown) {
         _quotaToastShown = true;
-        toast('Armazenamento local cheio — exporte projetos antigos (GeoPackage) e delete para liberar espaço', 'warning');
+        toast('Armazenamento local cheio — exporte a rota ativa e aguarde sincronização', 'warning');
       }
     } else {
       console.error('Save failed', e);
