@@ -6,6 +6,9 @@
 <meta name="theme-color" content="#0a0e1a">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/svg+xml" href="icon-192.svg">
+<link rel="apple-touch-icon" href="icon-192.svg">
 <!-- CSP: libera WebAssembly (sql.js) para exportação GeoPackage na Web -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'self' https: data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' https: blob:; style-src 'self' 'unsafe-inline' https:; img-src 'self' data: blob: https:; connect-src 'self' https: wss: data: blob:; worker-src 'self' blob: data:; font-src 'self' https: data:;">
 <title>Atta'M GeoTrace — Mapeamento de Campo</title>
@@ -918,6 +921,23 @@
     box-shadow: 0 2px 6px rgba(251, 191, 36, 0.5);
   }
 
+  /* Marker de outro operador no mesmo projeto (live presence) */
+  .peer-marker { width: 28px; height: 28px; }
+  .peer-dot {
+    width: 26px; height: 26px;
+    background: #ffffff;
+    border: 2px solid #0f172a;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #0f172a;
+    font-weight: 700;
+    font-size: 12px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.45);
+    pointer-events: auto;
+  }
+
   /* ============ WELCOME SCREEN ============ */
   .welcome-screen {
     position: fixed;
@@ -1145,14 +1165,16 @@
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
       </button>
     </div>
-    <button class="btn-full" id="exportBtn" style="margin-bottom:8px">Exportar Projeto (GeoPackage)</button>
+    <button class="btn-full" id="exportBtn" style="margin-bottom:8px">Exportar Geopackage</button>
+    <button class="btn-full secondary" id="importGpkgBtn" style="margin-bottom:8px">Importar Geopackage</button>
     <button class="btn-full secondary" id="openPerimetersBtn" style="margin-bottom:8px">Gerenciar Perímetros (KMZ)</button>
     <button class="btn-full secondary" id="openSettingsFromMenuBtn" style="margin-bottom:8px">Configurações</button>
     <button class="btn-full secondary" id="clearWarningsBtn" style="margin-bottom:8px">Limpar Interdições do Projeto</button>
     <button class="btn-full secondary" id="fitRouteBtn" style="margin-bottom:8px">Enquadrar Rota no Mapa</button>
-    <button class="btn-full secondary" id="aboutBtn" style="margin-bottom:8px">Diagnóstico &amp; Informações</button>
+    <button class="btn-full secondary" id="aboutBtn" style="margin-bottom:8px">Informações &amp; padrão de arquivos</button>
     <button class="btn-full secondary" id="userMenuBtn">Usuário</button>
     <input type="file" id="kmzFileInput" accept=".kmz,.kml" style="display:none">
+    <input type="file" id="gpkgFileInput" accept=".gpkg" style="display:none">
   </div>
 </div>
 
@@ -1182,21 +1204,6 @@
     </div>
 
     <div class="settings-group">
-      <div class="settings-group-title">Rastreamento</div>
-
-      <div class="settings-row">
-        <div class="settings-row-text">
-          <div class="settings-label">Seguir automaticamente</div>
-          <div class="settings-desc">Mapa centraliza em você enquanto anda. Desligue para explorar o mapa manualmente.</div>
-        </div>
-        <label class="toggle">
-          <input type="checkbox" id="toggleFollow" checked>
-          <span class="toggle-slider"></span>
-        </label>
-      </div>
-    </div>
-
-    <div class="settings-group">
       <div class="settings-group-title">Perímetros (KMZ)</div>
 
       <div class="slider-container">
@@ -1213,6 +1220,25 @@
     </div>
 
     <div class="settings-group">
+      <div class="settings-group-title">Espessura da linha de mapeamento</div>
+
+      <div class="slider-container">
+        <div class="slider-header">
+          <div class="settings-label" style="margin:0">Espessura</div>
+          <div class="slider-value" id="lineWeightValue">6.9</div>
+        </div>
+        <input type="range" min="2" max="12" step="0.5" value="6.9" class="slider" id="sliderLineWeight">
+        <div class="slider-labels">
+          <span>Fina</span>
+          <span>Grossa</span>
+        </div>
+        <div class="settings-desc" style="margin-top:10px">
+          Controla a espessura das rotas desenhadas no mapa. Padrão: <strong style="color:var(--text-primary)">6.9</strong>.
+        </div>
+      </div>
+    </div>
+
+    <div class="settings-group">
       <div class="settings-group-title">Filtro Kalman (suavização GPS)</div>
 
       <div class="slider-container">
@@ -1220,7 +1246,7 @@
           <div class="settings-label" style="margin:0">Intensidade da suavização</div>
           <div class="slider-value" id="kalmanValue">10.0</div>
         </div>
-        <input type="range" min="0.5" max="10" step="0.5" value="3" class="slider" id="sliderKalman">
+        <input type="range" min="0.5" max="10" step="0.5" value="10" class="slider" id="sliderKalman">
         <div class="slider-labels">
           <span>Mais suave</span>
           <span>Mais responsivo</span>
@@ -1249,17 +1275,66 @@
   </div>
 </div>
 
-<!-- DIAGNOSTIC MODAL -->
+<!-- INFO + FILE FORMAT MODAL (juntado: diagnóstico dinâmico + documentação) -->
 <div class="modal-backdrop" id="diagnosticModal">
   <div class="modal">
     <div class="modal-header">
-      <div class="modal-title">Diagnóstico & Informações</div>
+      <div class="modal-title">Informações &amp; padrão de arquivos</div>
       <button class="modal-close" id="closeDiagnostic">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
       </button>
     </div>
+
     <div id="diagnosticContent"></div>
-    <button class="btn-full secondary" id="refreshDiagnosticBtn" style="margin-top:12px">🔄 Atualizar</button>
+    <button class="btn-full secondary" id="refreshDiagnosticBtn" style="margin-top:12px; margin-bottom:18px">🔄 Atualizar</button>
+
+    <div class="settings-group">
+      <div class="settings-group-title">Importar / Exportar Geopackage</div>
+      <div class="settings-desc" style="line-height:1.5">
+        Os arquivos .gpkg gerados pelo Atta'M GeoTrace seguem o padrão OGC GeoPackage,
+        compatíveis com QGIS, GDAL/ogr2ogr e demais ferramentas SIG. O export é gravado
+        em <strong>SIRGAS 2000 / UTM 22S (EPSG:31982)</strong>, padrão técnico brasileiro.
+        O importador também aceita arquivos em EPSG:4326 (WGS84).
+      </div>
+    </div>
+
+    <div class="settings-group">
+      <div class="settings-group-title">Requisitos do arquivo importado</div>
+      <ul style="margin:8px 0 0 18px; line-height:1.6; color:var(--text-secondary); font-size:13px">
+        <li><strong>SRID:</strong> EPSG:<strong>31982</strong> (SIRGAS 2000 / UTM 22S) ou EPSG:<strong>4326</strong> (WGS84). Outros são rejeitados — re-projete antes.</li>
+        <li><strong>Coluna de geometria:</strong> <code>geom</code> (padrão GPKG, criada automaticamente pelo QGIS).</li>
+        <li><strong>Tipos suportados:</strong> Point, LineString, Polygon e variantes Multi*.</li>
+      </ul>
+    </div>
+
+    <div class="settings-group">
+      <div class="settings-group-title">Como cada feature é importada</div>
+      <ul style="margin:8px 0 0 18px; line-height:1.6; color:var(--text-secondary); font-size:13px">
+        <li><strong>LineString / MultiLineString</strong> → sub-rota (segmento) do projeto. Cada linha vira uma rota independente.</li>
+        <li><strong>Point / MultiPoint</strong> → interdição. Se a tabela tiver coluna <code>nota</code>, <code>note</code>, <code>descricao</code>, <code>description</code> ou <code>nome</code>, o conteúdo é usado como descrição.</li>
+        <li><strong>Polygon / MultiPolygon</strong> → perímetro (área de interesse).</li>
+      </ul>
+    </div>
+
+    <div class="settings-group">
+      <div class="settings-group-title">Exportar do QGIS para reimportar aqui</div>
+      <ol style="margin:8px 0 0 18px; line-height:1.6; color:var(--text-secondary); font-size:13px">
+        <li>Selecione a camada → <em>Save As / Exportar</em>.</li>
+        <li>Format: <strong>GeoPackage</strong>.</li>
+        <li>CRS: <strong>EPSG:31982 — SIRGAS 2000 / UTM 22S</strong> (preferencial) ou <strong>EPSG:4326 — WGS 84</strong>.</li>
+        <li>Salve. Tabelas adicionais no mesmo .gpkg são lidas em sequência.</li>
+      </ol>
+    </div>
+
+    <div class="settings-group">
+      <div class="settings-group-title">Limitações conhecidas</div>
+      <ul style="margin:8px 0 0 18px; line-height:1.6; color:var(--text-secondary); font-size:13px">
+        <li>Atributos que não sejam "nota" das interdições são descartados — apenas a geometria é preservada para rotas e perímetros.</li>
+        <li>Geometrias 3D (Z) são lidas como 2D — a coordenada Z é ignorada.</li>
+        <li>Anéis internos (buracos) de polígonos são preservados na visualização.</li>
+        <li>UTM 22S cobre longitudes entre -54° e -48° (faixa SP/MG/PR/MS). Pontos fora dessa zona são reprojetados ainda assim, mas a precisão métrica degrada nas bordas.</li>
+      </ul>
+    </div>
   </div>
 </div>
 
@@ -1368,6 +1443,7 @@ const state = {
     followUser: true,      // seguir usuário automaticamente (default)
     kmzFillOpacity: 0.08,  // opacidade do preenchimento de perímetros (0 = transparente)
     kalmanNoise: 10.0,     // ruído de processo do filtro Kalman (0.5 a 10)
+    routeLineWeight: 6.9,  // espessura da linha de mapeamento (2 a 12)
   },
 };
 
@@ -1456,6 +1532,7 @@ async function submitPassword() {
 
 async function signOut() {
   try {
+    await liveTracking.stop();
     sync.stopRealtimeSubscription();
     await sb.auth.signOut();
   } catch(e) { console.error(e); }
@@ -1535,12 +1612,113 @@ function loadState() {
         }
       });
     }
+    // Migração: bug antigo deixou kalmanNoise em valores baixos (2, 3, etc) em
+    // localStorages existentes — o slider HTML tinha value="3" hardcoded e em
+    // versões anteriores algumas builds deixaram outros defaults inadequados.
+    // O padrão correto é 10.0. Forçamos a migração para qualquer valor < 5
+    // (faixa "responsiva" abaixo do default só faz sentido em casos especiais
+    // — quem realmente quiser pode reajustar pelo slider).
+    if (typeof state.settings.kalmanNoise === 'number' && state.settings.kalmanNoise < 5) {
+      state.settings.kalmanNoise = KALMAN_DEFAULT;
+    }
     // Aplicar valor Kalman salvo à variável global usada pelo filtro
     if (typeof state.settings.kalmanNoise === 'number') {
       kalmanProcessNoise = state.settings.kalmanNoise;
+    } else {
+      // Se não há valor salvo, garantir que rodamos no default (não em undefined)
+      state.settings.kalmanNoise = KALMAN_DEFAULT;
+      kalmanProcessNoise = KALMAN_DEFAULT;
     }
   } catch (e) { console.error('Load failed', e); }
 }
+
+// ====================== NAMING UTILITIES ======================
+// Geram nomes legíveis para items e arquivos, facilitando inspeção no Supabase
+// (Table Editor mostra nome em vez de UUID; Storage tem path com slug do projeto).
+function slugify(s) {
+  return String(s || 'projeto')
+    .normalize('NFD').replace(/[̀-ͯ]/g, '') // remove acentos (combining marks)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40) || 'projeto';
+}
+
+const ITEM_KIND_LABEL = {
+  route_segment: 'Rota',
+  warning: 'Interdição',
+  perimeter: 'Perímetro',
+};
+
+function generateItemName(projectName, kind, seq) {
+  const label = ITEM_KIND_LABEL[kind] || 'Item';
+  const seqStr = String(seq).padStart(2, '0');
+  return `${projectName} - ${label} ${seqStr}`;
+}
+
+// Calcula o próximo número sequencial para um tipo de item dentro do projeto.
+// Usa o length atual (incluindo o que vem da nuvem) — pode ter colisão com
+// gravação simultânea de outro operador, o que é aceitável (UUID continua
+// sendo o id; nome serve só para identificação humana).
+function nextItemSeq(proj, kind) {
+  if (!proj) return 1;
+  if (kind === 'route_segment') return (proj.segments?.length || 0) + 1;
+  if (kind === 'warning') return (proj.warnings?.length || 0) + 1;
+  if (kind === 'perimeter') return (proj.perimeters?.length || 0) + 1;
+  return 1;
+}
+
+// ====================== TOMBSTONES (delete tracking) ======================
+// Quando o usuário apaga um projeto, gravamos um "tombstone" local com o id
+// e timestamp. Ao logar em outro dispositivo, evitamos que projetos já
+// apagados (mas que ainda apareçam no servidor por race-condition ou falha
+// de fila anterior) sejam re-criados na UI. O tombstone é preservado por
+// 30 dias — após isso é descartado (assume-se que delete já propagou).
+const TOMBSTONE_KEY = 'fieldmapper_tombstones';
+const TOMBSTONE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 dias
+
+const tombstones = {
+  map: {}, // { projectId: timestampMs }
+
+  load() {
+    try {
+      const raw = localStorage.getItem(TOMBSTONE_KEY);
+      if (raw) this.map = JSON.parse(raw);
+      this.prune();
+    } catch (_) { this.map = {}; }
+  },
+
+  save() {
+    try { localStorage.setItem(TOMBSTONE_KEY, JSON.stringify(this.map)); } catch (_) {}
+  },
+
+  add(projectId) {
+    if (!projectId) return;
+    this.map[projectId] = Date.now();
+    this.save();
+  },
+
+  has(projectId) {
+    return projectId && Object.prototype.hasOwnProperty.call(this.map, projectId);
+  },
+
+  clear(projectId) {
+    delete this.map[projectId];
+    this.save();
+  },
+
+  prune() {
+    const now = Date.now();
+    let changed = false;
+    for (const id of Object.keys(this.map)) {
+      if (now - this.map[id] > TOMBSTONE_TTL_MS) {
+        delete this.map[id];
+        changed = true;
+      }
+    }
+    if (changed) this.save();
+  },
+};
 
 // ====================== CLOUD SYNC ======================
 // Arquitetura local-first:
@@ -1692,6 +1870,23 @@ const sync = {
   },
 
   async opDeleteProject(op) {
+    // 1. Remove o GPKG associado no Storage (evita órfãos no bucket).
+    //    Tenta tanto o path moderno (slug__uuid8.gpkg) quanto o legado
+    //    (uuidCompleto.gpkg) — projeto pode ter sido criado em qualquer um.
+    //    Se não existir, Supabase retorna sem erro real — silenciamos.
+    const candidates = [];
+    if (op.gpkgPath) candidates.push(op.gpkgPath);
+    candidates.push(`${op.projectId}.gpkg`); // legacy
+    try {
+      await sb.storage.from(GPKG_STORAGE_BUCKET).remove(candidates);
+    } catch (_) { /* arquivo pode não existir — não bloquear delete */ }
+
+    // 2. Apaga itens explicitamente caso a FK em project_items não tenha CASCADE.
+    //    Idempotente: se já houver CASCADE, nada acontece.
+    try {
+      await sb.from('project_items').delete().eq('project_id', op.projectId);
+    } catch (_) { /* ok — fallback opcional */ }
+
     const { error } = await sb.from('projects').delete().eq('id', op.projectId);
     if (error) throw error;
   },
@@ -1704,18 +1899,35 @@ const sync = {
   },
 
   async opAddItem(op) {
-    const { error } = await sb.from('project_items').insert({
+    const insertRow = {
       id: op.itemId,
       project_id: op.projectId,
       kind: op.kind,
       payload: op.payload,
       created_by: currentUser.id,
       created_by_name: currentUserName,
-    });
+    };
+    // Nome legível (ex: "Tatuí Centro - Rota 03"). Coluna opcional — só envia
+    // se foi computado pelo caller. Schema do Supabase precisa ter esta coluna:
+    //   ALTER TABLE project_items ADD COLUMN IF NOT EXISTS name TEXT;
+    if (op.name) insertRow.name = op.name;
+
+    const { error } = await sb.from('project_items').insert(insertRow);
     // 409 HTTP (status) = 23505 PostgreSQL (unique_violation). O Supabase JS v2
     // pode entregar o código como string '23505' ou como status HTTP numérico 409
     // dependendo da versão e do tipo de erro. Tratamos ambos.
-    if (error && error.code !== '23505' && error.status !== 409) throw error;
+    if (error && error.code !== '23505' && error.status !== 409) {
+      // Se a coluna `name` não existir no schema, retentamos sem ela em vez
+      // de bloquear todo o item (compat. com bancos que não rodaram a migração).
+      const msg = (error.message || '').toLowerCase();
+      if (op.name && (msg.includes("'name' column") || msg.includes('column "name"') || error.code === 'PGRST204')) {
+        delete insertRow.name;
+        const retry = await sb.from('project_items').insert(insertRow);
+        if (retry.error && retry.error.code !== '23505' && retry.error.status !== 409) throw retry.error;
+      } else {
+        throw error;
+      }
+    }
   },
 
   async opDeleteItem(op) {
@@ -1750,13 +1962,21 @@ const sync = {
         .order('created_at', { ascending: true });
       if (iErr) throw iErr;
 
-      // 3. Reconstruir state.projects a partir dos dados
+      // 3. Reconstruir state.projects a partir dos dados.
+      //    Aplica tombstones: projetos que o usuário deletou localmente mas
+      //    ainda apareceram no servidor são re-deletados em background.
       const newProjects = {};
       const idByName = {};
 
       for (const p of projects) {
+        if (tombstones.has(p.id)) {
+          // Projeto deletado localmente — re-enfileirar delete e ignorar
+          this.enqueue({ type: 'delete_project', projectId: p.id, gpkgPath: p.gpkg_path });
+          continue;
+        }
         newProjects[p.name] = {
           _id: p.id,
+          _gpkgPath: p.gpkg_path || null,
           segments: [],
           warnings: [],
           perimeters: [],
@@ -1808,13 +2028,25 @@ const sync = {
       let recoveredSegments = 0;
       const prevLocal = state.projects || {};
 
-      // (a) Projetos só-locais
+      // Conjunto de ids vindos do servidor — usado para detectar projetos
+      // que existiam localmente com _id mas foram remotamente deletados.
+      const serverIds = new Set(projects.map(p => p.id));
+
+      // (a) Projetos só-locais.
+      //     - Se o projeto local NUNCA foi para a nuvem (sem _id), preservar.
+      //     - Se tinha _id e o id ainda existe no servidor, já está em newProjects.
+      //     - Se tinha _id e o id NÃO está mais no servidor, foi deletado em
+      //       outro dispositivo — respeitar e descartar (sem restaurar).
       for (const [name, proj] of Object.entries(prevLocal)) {
         if (!proj) continue;
-        if (!newProjects[name]) {
-          newProjects[name] = proj;
-          if (proj._id) idByName[name] = proj._id;
+        if (newProjects[name]) continue;
+        if (proj._id && !serverIds.has(proj._id)) {
+          // Remotamente deletado — adiciona tombstone defensivo e descarta.
+          tombstones.add(proj._id);
+          continue;
         }
+        newProjects[name] = proj;
+        if (proj._id) idByName[name] = proj._id;
       }
 
       // (b) Segmentos não-sincronizados
@@ -1853,8 +2085,10 @@ const sync = {
           for (let i = 1; i < seg.length; i++) {
             segDist += haversine(seg[i-1].lat, seg[i-1].lng, seg[i].lat, seg[i].lng);
           }
+          const seq = (proj.segments.filter(s => s && s._itemId).length);
           this.enqueue({
             type: 'add_item', itemId, projectId, kind: 'route_segment',
+            name: generateItemName(name, 'route_segment', seq),
             payload: {
               points: seg.map(p => ({ lat: p.lat, lng: p.lng, t: p.t })),
               created_at: new Date().toISOString(),
@@ -1871,14 +2105,13 @@ const sync = {
         }
       }
 
-      // Se tinha projeto aberto local e ele ainda existe, mantém; senão fecha
-      if (state.currentProject && !state.projects[state.currentProject]) {
-        state.currentProject = null;
-        clearProjectLayers();
-      } else if (state.currentProject) {
-        clearProjectLayers();
-        loadProjectOnMap();
-      }
+      // Ao logar (qualquer dispositivo), começa SEMPRE sem projeto selecionado
+      // e sem gravação ativa. Evita que sessão antiga em outro device "vaze".
+      state.currentProject = null;
+      state.recording = false;
+      state.paused = false;
+      state.currentSegment = null;
+      clearProjectLayers();
 
       saveState();
       renderProjectList();
@@ -1923,11 +2156,25 @@ const sync = {
     const ev = payload.eventType; // INSERT, UPDATE, DELETE
     const row = payload.new || payload.old;
 
+    // Suprime eventos de projetos que o usuário deletou localmente. Pode acontecer
+    // se o delete enfileirado ainda não drenou e o servidor ressuscita o projeto
+    // via outro INSERT/UPDATE (ou se este device está vendo evento já obsoleto).
+    if (tombstones.has(row.id)) {
+      if (ev === 'DELETE') tombstones.clear(row.id); // confirmou no servidor — pode esquecer
+      else if (ev === 'INSERT' || ev === 'UPDATE') {
+        // Re-enfileira delete defensivamente
+        this.enqueue({ type: 'delete_project', projectId: row.id, gpkgPath: row.gpkg_path });
+      }
+      return;
+    }
+
     if (ev === 'INSERT') {
       // Projeto novo criado por outro usuário
       if (!this.projectIdByName[row.name]) {
         state.projects[row.name] = {
-          _id: row.id, segments: [], warnings: [], perimeters: [],
+          _id: row.id,
+          _gpkgPath: row.gpkg_path || null,
+          segments: [], warnings: [], perimeters: [],
           distance: 0, createdAt: row.created_at,
           createdBy: row.created_by,
         };
@@ -1996,7 +2243,9 @@ const sync = {
         proj.segments.push(seg);
         if (isCurrentProj && seg.length >= 2) {
           const pl = L.polyline(seg.map(p => [p.lat, p.lng]), {
-            color: '#3b82f6', weight: 6.9, opacity: 0.85,
+            color: '#3b82f6',
+            weight: state.settings.routeLineWeight ?? 6.9,
+            opacity: 0.85,
             lineCap: 'round', lineJoin: 'round',
           }).addTo(state.map);
           state.polylines.push(pl);
@@ -2299,6 +2548,255 @@ function getUniqueProjectName(base) {
   return `${base}_${i}`;
 }
 
+// ====================== WAKE LOCK (mantém tela acesa em gravação) ======================
+// Screen Wake Lock API: previne que a tela apague ENQUANTO o app está visível.
+// IMPORTANTE: NENHUM browser permite GPS contínuo com a tela DESLIGADA. WakeLock
+// só evita o auto-bloqueio do sistema operacional — o usuário ainda precisa
+// manter o app aberto e a tela ligada. Documentamos isso no aviso visual.
+const wakeLock = {
+  sentinel: null,
+  visibilityHandler: null,
+
+  async acquire() {
+    if (!('wakeLock' in navigator)) return false;
+    if (this.sentinel) return true; // já adquirido
+    try {
+      this.sentinel = await navigator.wakeLock.request('screen');
+      this.sentinel.addEventListener('release', () => { this.sentinel = null; });
+      // Re-adquirir quando a aba volta a ficar visível (Chrome/Android libera
+      // automaticamente quando aba sai de foco — precisamos pedir de novo).
+      if (!this.visibilityHandler) {
+        this.visibilityHandler = async () => {
+          if (document.visibilityState === 'visible' && state.recording && !state.paused) {
+            try {
+              this.sentinel = await navigator.wakeLock.request('screen');
+              this.sentinel.addEventListener('release', () => { this.sentinel = null; });
+            } catch (_) {}
+          }
+        };
+        document.addEventListener('visibilitychange', this.visibilityHandler);
+      }
+      return true;
+    } catch (e) {
+      console.warn('Wake Lock falhou:', e);
+      return false;
+    }
+  },
+
+  async release() {
+    if (this.visibilityHandler) {
+      document.removeEventListener('visibilitychange', this.visibilityHandler);
+      this.visibilityHandler = null;
+    }
+    if (this.sentinel) {
+      try { await this.sentinel.release(); } catch (_) {}
+      this.sentinel = null;
+    }
+  },
+};
+
+// Mostra aviso uma vez por sessão sobre a limitação de GPS em background.
+let _bgWarningShown = false;
+function showBackgroundLimitationOnce() {
+  if (_bgWarningShown) return;
+  _bgWarningShown = true;
+  // Aviso longo (6s) em laranja para destacar.
+  const t = document.createElement('div');
+  t.className = 'toast warning';
+  t.style.maxWidth = '320px';
+  t.style.lineHeight = '1.4';
+  t.innerHTML = 'Tela permanecerá acesa durante a gravação.<br><strong>Não bloqueie o aparelho</strong> — navegadores não permitem GPS contínuo com a tela apagada.';
+  document.body.appendChild(t);
+  setTimeout(() => { t.style.opacity = '0'; }, 5500);
+  setTimeout(() => t.remove(), 6000);
+}
+
+// ====================== LIVE TRACKING (Realtime Presence) ======================
+// Canal por projeto onde cada operador transmite sua posição a cada 3s via
+// Presence. Outros operadores no MESMO projeto veem um ponto branco com a
+// inicial do nome. Independente do canal "db-changes" do sync, que cuida de
+// rotas/itens persistidos.
+//
+// Limitações:
+//   - Posições NÃO são salvas em banco — só passam pelo Realtime (efêmero).
+//   - Se um operador fica >30s sem update (presence stale), seu marker some.
+//   - Throttle de 3s evita hammering do canal — ainda assim, tracker de UI
+//     atualiza imediatamente ao receber join/sync events de outros.
+
+const LIVE_PUBLISH_INTERVAL_MS = 3000;
+const LIVE_PEER_TIMEOUT_MS = 30000;
+
+const liveTracking = {
+  channel: null,
+  currentProjectId: null,
+  peers: new Map(), // userId → { marker, name, lastSeen, lat, lng, accuracy }
+  lastPublishAt: 0,
+  staleSweepInterval: null,
+
+  // Inicia tracking para um projeto. Fecha canal anterior se houver.
+  async start(projectId) {
+    if (!projectId) return;
+    if (!isAuthenticated()) return;
+    if (this.currentProjectId === projectId && this.channel) return;
+
+    await this.stop();
+    this.currentProjectId = projectId;
+
+    const userId = currentUser.id;
+    this.channel = sb.channel(`project:${projectId}:live`, {
+      config: { presence: { key: userId } }
+    });
+
+    this.channel.on('presence', { event: 'sync' }, () => {
+      const presenceState = this.channel.presenceState();
+      this.applyPresenceSnapshot(presenceState);
+    });
+    this.channel.on('presence', { event: 'leave' }, ({ key }) => {
+      this.removePeer(key);
+    });
+
+    this.channel.subscribe(async (status) => {
+      if (status === 'SUBSCRIBED' && state.position) {
+        // Publica imediatamente ao subscrever para que outros já me vejam
+        await this.doPublish(state.position.lat, state.position.lng,
+          state.position.accuracy, state.gpsHeading);
+      }
+    });
+
+    // Sweeper para remover peers que pararam de atualizar
+    if (this.staleSweepInterval) clearInterval(this.staleSweepInterval);
+    this.staleSweepInterval = setInterval(() => this.sweepStale(), 5000);
+  },
+
+  async stop() {
+    if (this.staleSweepInterval) {
+      clearInterval(this.staleSweepInterval);
+      this.staleSweepInterval = null;
+    }
+    if (this.channel) {
+      try { await sb.removeChannel(this.channel); } catch (_) {}
+      this.channel = null;
+    }
+    this.currentProjectId = null;
+    // Limpa markers + trails de peers
+    for (const peer of this.peers.values()) {
+      if (peer.marker) state.map.removeLayer(peer.marker);
+      if (peer.trail) state.map.removeLayer(peer.trail);
+    }
+    this.peers.clear();
+    this.lastPublishAt = 0;
+  },
+
+  // Publica nossa posição atual — throttled para 3s.
+  publishPosition(lat, lng, accuracy, heading) {
+    if (!this.channel) return;
+    const now = Date.now();
+    if (now - this.lastPublishAt < LIVE_PUBLISH_INTERVAL_MS) return;
+    this.lastPublishAt = now;
+    this.doPublish(lat, lng, accuracy, heading);
+  },
+
+  async doPublish(lat, lng, accuracy, heading) {
+    if (!this.channel) return;
+    try {
+      await this.channel.track({
+        userId: currentUser.id,
+        name: currentUserName || 'Operador',
+        lat, lng, accuracy: accuracy || null,
+        heading: heading || null,
+        t: Date.now(),
+      });
+    } catch (_) { /* canal pode estar fechando — ignorar */ }
+  },
+
+  applyPresenceSnapshot(presenceState) {
+    const seen = new Set();
+    for (const [key, presences] of Object.entries(presenceState)) {
+      // Ignora a si mesmo
+      if (key === currentUser.id) continue;
+      const p = presences[presences.length - 1]; // mais recente
+      if (!p || typeof p.lat !== 'number') continue;
+      seen.add(key);
+      this.upsertPeer(key, p);
+    }
+    // Remove peers que não estão mais no snapshot
+    for (const key of Array.from(this.peers.keys())) {
+      if (!seen.has(key)) this.removePeer(key);
+    }
+  },
+
+  upsertPeer(userId, p) {
+    let peer = this.peers.get(userId);
+    if (!peer) {
+      const initial = (p.name || '?').trim().slice(0, 1).toUpperCase();
+      const icon = L.divIcon({
+        className: 'peer-marker',
+        html: `<div class="peer-dot" title="${escapeHtml(p.name || 'Operador')}"><span>${escapeHtml(initial)}</span></div>`,
+        iconSize: [28, 28],
+        iconAnchor: [14, 14],
+      });
+      const marker = L.marker([p.lat, p.lng], { icon, interactive: true })
+        .addTo(state.map)
+        .bindTooltip(p.name || 'Operador', { direction: 'top', offset: [0, -10] });
+      // Trail (polyline) que cresce conforme o peer publica novas posições.
+      // Tracejado e translúcido para distinguir das rotas reais (azul sólido).
+      const trail = L.polyline([[p.lat, p.lng]], {
+        color: '#94a3b8',
+        weight: 3,
+        opacity: 0.6,
+        dashArray: '6,6',
+        lineCap: 'round',
+      }).addTo(state.map);
+      peer = {
+        marker, trail, name: p.name,
+        lastSeen: p.t || Date.now(),
+        lat: p.lat, lng: p.lng, accuracy: p.accuracy,
+        trailPoints: [[p.lat, p.lng]],
+      };
+      this.peers.set(userId, peer);
+    } else {
+      peer.marker.setLatLng([p.lat, p.lng]);
+      // Só estende o trail se o peer realmente se moveu (>2m) — evita
+      // jitter de GPS criar pontos colados.
+      const moved = peer.trailPoints.length === 0 ||
+        haversine(peer.lat, peer.lng, p.lat, p.lng) >= 2;
+      if (moved) {
+        peer.trailPoints.push([p.lat, p.lng]);
+        // Limita o trail a últimos 500 pontos para não inflar a memória
+        if (peer.trailPoints.length > 500) {
+          peer.trailPoints = peer.trailPoints.slice(-500);
+        }
+        peer.trail.setLatLngs(peer.trailPoints);
+      }
+      peer.lat = p.lat; peer.lng = p.lng; peer.accuracy = p.accuracy;
+      peer.lastSeen = p.t || Date.now();
+      if (peer.name !== p.name && p.name) {
+        peer.name = p.name;
+        peer.marker.unbindTooltip();
+        peer.marker.bindTooltip(p.name, { direction: 'top', offset: [0, -10] });
+      }
+    }
+  },
+
+  removePeer(userId) {
+    const peer = this.peers.get(userId);
+    if (peer) {
+      if (peer.marker) state.map.removeLayer(peer.marker);
+      if (peer.trail) state.map.removeLayer(peer.trail);
+    }
+    this.peers.delete(userId);
+  },
+
+  sweepStale() {
+    const now = Date.now();
+    for (const [key, peer] of Array.from(this.peers.entries())) {
+      if (now - peer.lastSeen > LIVE_PEER_TIMEOUT_MS) {
+        this.removePeer(key);
+      }
+    }
+  },
+};
+
 // ====================== MAP INIT ======================
 function initMap() {
   state.map = L.map('map', {
@@ -2307,9 +2805,12 @@ function initMap() {
     rotate: false,
   }).setView([-23.359, -47.854], 15); // Tatuí default
 
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  // CartoDB Voyager: tom mais claro nas ruas, melhor contraste para mapeamento de campo.
+  // Gratuito, sem API key. Suporta retina ({r}) automaticamente.
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
     maxZoom: 19,
-    attribution: '© OpenStreetMap',
+    subdomains: 'abcd',
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
   }).addTo(state.map);
 
   // Drag disables follow
@@ -2399,6 +2900,9 @@ function onGPS(pos) {
   if (state.recording && !state.paused) {
     addPointToRoute(latitude, longitude, accuracy);
   }
+
+  // Publica posição para outros operadores no mesmo projeto (throttled 3s)
+  liveTracking.publishPosition(latitude, longitude, accuracy, state.gpsHeading);
 }
 
 function onGPSError(err) {
@@ -2489,24 +2993,36 @@ function switchProject(name) {
   loadProjectOnMap();
   updateProjectUI();
   toast(`Projeto "${name}" ativado`);
+
+  // Inicia tracking ao vivo para este projeto (presence + ponto branco dos
+  // outros operadores). Fecha automaticamente o canal anterior se houver.
+  const projectId = sync.projectIdByName[name];
+  if (projectId) liveTracking.start(projectId);
 }
 
 function deleteProject(name) {
   if (!confirm(`Excluir projeto "${name}"? Esta ação é irreversível.`)) return;
   const projectId = sync.projectIdByName[name];
+  const gpkgPath = state.projects[name]?._gpkgPath;
   delete state.projects[name];
   delete sync.projectIdByName[name];
   if (state.currentProject === name) {
     state.currentProject = null;
     clearProjectLayers();
+    liveTracking.stop();
   }
   saveState();
   renderProjectList();
   updateProjectUI();
   toast('Projeto excluído', 'warning');
 
-  if (isAuthenticated() && projectId) {
-    sync.enqueue({ type: 'delete_project', projectId });
+  if (projectId) {
+    // Marca tombstone local para suprimir reaparecimento via initialLoad/realtime
+    // em caso de race-condition (outro device cria novamente antes do delete chegar).
+    tombstones.add(projectId);
+    // Sempre enfileira — a fila persiste em localStorage e drena no próximo login.
+    // Removida a guarda isAuthenticated() para que deletes offline não se percam.
+    sync.enqueue({ type: 'delete_project', projectId, gpkgPath });
   }
 }
 
@@ -2552,7 +3068,7 @@ function loadProjectOnMap() {
     if (seg.length >= 2) {
       const pl = L.polyline(seg.map(p => [p.lat, p.lng]), {
         color: '#3b82f6',
-        weight: 6.9,
+        weight: state.settings.routeLineWeight ?? 6.9,
         opacity: 0.85,
         lineCap: 'round',
         lineJoin: 'round',
@@ -2710,11 +3226,16 @@ function toggleRecording() {
     state.timerStart = Date.now();
     startTimer();
     toast('Gravação iniciada', 'success');
+    // Mantém tela acesa e mostra aviso sobre limitação de background uma vez
+    wakeLock.acquire();
+    showBackgroundLimitationOnce();
   } else if (!state.paused) {
     // Pause
     state.paused = true;
     stopTimer();
     toast('Pausado', 'warning');
+    // Pausa libera o WakeLock para economizar bateria
+    wakeLock.release();
   } else {
     // Resume — cria NOVO segmento separado (sem reta conectando ao anterior)
     state.paused = false;
@@ -2723,6 +3244,7 @@ function toggleRecording() {
     state.timerStart = Date.now() - state.timerElapsed * 1000;
     startTimer();
     toast('Nova sub-rota iniciada', 'success');
+    wakeLock.acquire();
   }
   updateRecordButton();
 }
@@ -2742,6 +3264,8 @@ function stopRecording() {
   state.sessionDistance = 0;
   updateStats();
   updateRecordButton();
+  // Libera Wake Lock — tela volta a poder apagar normalmente
+  wakeLock.release();
 
   // Sincronizar com a nuvem: cada segmento sem _itemId vira um novo item
   if (isAuthenticated() && projectName) {
@@ -2749,6 +3273,10 @@ function stopRecording() {
     const projectId = sync.projectIdByName[projectName];
     if (projectId && proj) {
       let syncedSegments = 0;
+      // Numeração começa após o que já existe no projeto (todos os segments,
+      // incluindo já sincronizados) — assim novos segmentos pegam números
+      // sequenciais sem colidir com gravações anteriores.
+      let seqCounter = (proj.segments.filter(s => s && s._itemId).length) + 1;
       proj.segments.forEach(seg => {
         if (seg.length < 2 || seg._itemId) return; // ignora vazios e já sincronizados
         const itemId = crypto.randomUUID();
@@ -2760,6 +3288,7 @@ function stopRecording() {
         }
         sync.enqueue({
           type: 'add_item', itemId, projectId, kind: 'route_segment',
+          name: generateItemName(projectName, 'route_segment', seqCounter++),
           payload: {
             points: seg.map(p => ({ lat: p.lat, lng: p.lng, t: p.t })),
             created_at: new Date().toISOString(),
@@ -2834,8 +3363,11 @@ function checkpointCurrentSegment() {
     segDist += haversine(seg[i-1].lat, seg[i-1].lng, seg[i].lat, seg[i].lng);
   }
 
+  // Checkpoint produz a próxima rota sequencial — conta segments já com _itemId.
+  const seq = (proj.segments.filter(s => s && s._itemId).length) + 1;
   sync.enqueue({
     type: 'add_item', itemId, projectId, kind: 'route_segment',
+    name: generateItemName(state.currentProject, 'route_segment', seq),
     payload: {
       points: seg.map(p => ({ lat: p.lat, lng: p.lng, t: p.t })),
       created_at: new Date().toISOString(),
@@ -2920,7 +3452,9 @@ function addPointToRoute(lat, lng, accuracy) {
       existing.setLatLngs(coords);
     } else {
       const pl = L.polyline(coords, {
-        color: '#3b82f6', weight: 6.9, opacity: 0.85,
+        color: '#3b82f6',
+        weight: state.settings.routeLineWeight ?? 6.9,
+        opacity: 0.85,
         lineCap: 'round', lineJoin: 'round',
       }).addTo(state.map);
       state.polylines[segIdx] = pl;
@@ -3057,8 +3591,11 @@ function placeObstacleAt(lat, lng) {
   if (isAuthenticated()) {
     const projectId = sync.projectIdByName[state.currentProject];
     if (projectId) {
+      const proj = state.projects[state.currentProject];
+      const seq = nextItemSeq(proj, 'warning');
       sync.enqueue({
         type: 'add_item', itemId, projectId, kind: 'warning',
+        name: generateItemName(state.currentProject, 'warning', seq),
         payload: { lat, lng, note, t: w.t }
       });
     }
@@ -3074,6 +3611,107 @@ function clearWarnings() {
   saveState();
   toast('Interdições removidas');
 }
+
+// ====================== REPROJEÇÃO: WGS84 ↔ SIRGAS 2000 / UTM 22S ============
+// Implementação direta das fórmulas de Snyder (USGS Bulletin 1532) usando
+// elipsoide GRS80 — SIRGAS 2000 e WGS84 são equivalentes para precisão de
+// campo (diferença sub-metro entre os datums). Não dependemos de Proj4js
+// para manter o app autocontido.
+//
+// EPSG:31982 = SIRGAS 2000 / UTM zone 22S
+//   - Meridiano central: -51° (longitude oeste)
+//   - Hemisfério sul (false northing = 10.000.000 m)
+//   - Fator de escala: 0.9996
+//   - Falso E: 500.000 m
+const UTM22S = (() => {
+  const a = 6378137.0;                    // semi-eixo maior (GRS80)
+  const f = 1 / 298.257222101;            // achatamento
+  const e2 = 2 * f - f * f;               // primeira excentricidade²
+  const ep2 = e2 / (1 - e2);              // segunda excentricidade²
+  const k0 = 0.9996;
+  const lon0 = -51 * Math.PI / 180;       // meridiano central UTM 22
+  const FE = 500000;
+  const FN = 10000000;                    // hemisfério sul
+
+  // Comprimento de meridiano (M) a partir da latitude φ
+  function meridianArc(phi) {
+    return a * (
+      (1 - e2 / 4 - 3 * e2 * e2 / 64 - 5 * e2 * e2 * e2 / 256) * phi
+      - (3 * e2 / 8 + 3 * e2 * e2 / 32 + 45 * e2 * e2 * e2 / 1024) * Math.sin(2 * phi)
+      + (15 * e2 * e2 / 256 + 45 * e2 * e2 * e2 / 1024) * Math.sin(4 * phi)
+      - (35 * e2 * e2 * e2 / 3072) * Math.sin(6 * phi)
+    );
+  }
+
+  // WGS84 (lat, lng em graus) → UTM 22S { e, n } em metros
+  function fromLatLng(lat, lng) {
+    const phi = lat * Math.PI / 180;
+    const lam = lng * Math.PI / 180;
+    const sinPhi = Math.sin(phi);
+    const cosPhi = Math.cos(phi);
+    const tanPhi = Math.tan(phi);
+
+    const N = a / Math.sqrt(1 - e2 * sinPhi * sinPhi);
+    const T = tanPhi * tanPhi;
+    const C = ep2 * cosPhi * cosPhi;
+    const A = (lam - lon0) * cosPhi;
+    const M = meridianArc(phi);
+
+    const e = FE + k0 * N * (
+      A
+      + (1 - T + C) * A * A * A / 6
+      + (5 - 18 * T + T * T + 72 * C - 58 * ep2) * Math.pow(A, 5) / 120
+    );
+
+    const n = FN + k0 * (
+      M + N * tanPhi * (
+        A * A / 2
+        + (5 - T + 9 * C + 4 * C * C) * Math.pow(A, 4) / 24
+        + (61 - 58 * T + T * T + 600 * C - 330 * ep2) * Math.pow(A, 6) / 720
+      )
+    );
+    return { e, n };
+  }
+
+  // UTM 22S { e, n } → WGS84 { lat, lng } em graus
+  function toLatLng(e, n) {
+    const x = e - FE;
+    const y = n - FN;
+    const M = y / k0;
+    const e1 = (1 - Math.sqrt(1 - e2)) / (1 + Math.sqrt(1 - e2));
+    const mu = M / (a * (1 - e2 / 4 - 3 * e2 * e2 / 64 - 5 * e2 * e2 * e2 / 256));
+    const phi1 = mu
+      + (3 * e1 / 2 - 27 * Math.pow(e1, 3) / 32) * Math.sin(2 * mu)
+      + (21 * e1 * e1 / 16 - 55 * Math.pow(e1, 4) / 32) * Math.sin(4 * mu)
+      + (151 * Math.pow(e1, 3) / 96) * Math.sin(6 * mu)
+      + (1097 * Math.pow(e1, 4) / 512) * Math.sin(8 * mu);
+
+    const sinPhi1 = Math.sin(phi1);
+    const cosPhi1 = Math.cos(phi1);
+    const tanPhi1 = Math.tan(phi1);
+
+    const C1 = ep2 * cosPhi1 * cosPhi1;
+    const T1 = tanPhi1 * tanPhi1;
+    const N1 = a / Math.sqrt(1 - e2 * sinPhi1 * sinPhi1);
+    const R1 = a * (1 - e2) / Math.pow(1 - e2 * sinPhi1 * sinPhi1, 1.5);
+    const D = x / (N1 * k0);
+
+    const phi = phi1 - (N1 * tanPhi1 / R1) * (
+      D * D / 2
+      - (5 + 3 * T1 + 10 * C1 - 4 * C1 * C1 - 9 * ep2) * Math.pow(D, 4) / 24
+      + (61 + 90 * T1 + 298 * C1 + 45 * T1 * T1 - 252 * ep2 - 3 * C1 * C1) * Math.pow(D, 6) / 720
+    );
+    const lam = lon0 + (
+      D
+      - (1 + 2 * T1 + C1) * Math.pow(D, 3) / 6
+      + (5 - 2 * C1 + 28 * T1 - 3 * C1 * C1 + 8 * ep2 + 24 * T1 * T1) * Math.pow(D, 5) / 120
+    ) / cosPhi1;
+
+    return { lat: phi * 180 / Math.PI, lng: lam * 180 / Math.PI };
+  }
+
+  return { fromLatLng, toLatLng, srid: 31982 };
+})();
 
 // ====================== EXPORT: GEOPACKAGE ======================
 // GeoPackage é um SQLite seguindo o padrão OGC. Usamos sql.js para montar no navegador.
@@ -3097,12 +3735,10 @@ function writeUint32(view, offset, value) {
   view.setUint32(offset, value, true);
 }
 
-// Monta o cabeçalho GeoPackage binary + WKB para uma geometria
-// srs_id = 4326 (WGS 84)
-function buildGpkgGeometry(wkbBuffer, envelope) {
+// Monta o cabeçalho GeoPackage binary + WKB para uma geometria.
+// srsId é configurável — usamos 31982 (SIRGAS 2000 / UTM 22S) por padrão.
+function buildGpkgGeometry(wkbBuffer, envelope, srsId) {
   // Cabeçalho GPKG: magic(2) + version(1) + flags(1) + srs_id(4) + envelope(opcional)
-  // flags: bits 0-3 envelope type (1 = minX,maxX,minY,maxY = 32 bytes), bit 0 também é endian
-  // Usamos envelope tipo 1 (32 bytes) em little-endian
   const envSize = 32;
   const header = new ArrayBuffer(8 + envSize);
   const hv = new DataView(header);
@@ -3110,15 +3746,13 @@ function buildGpkgGeometry(wkbBuffer, envelope) {
   hv.setUint8(1, 0x50); // 'P'
   hv.setUint8(2, 0);    // version 0
   // flags: bit 0 = endian (1=LE), bits 1-3 = envelope type (1 = xy = 32 bytes)
-  // byteOrder=1 (LE), envelope=1 (xy), empty=0, geomType=0 (standard)
-  hv.setUint8(3, 0b00000011); // 0x03 = LE + envelope type 1
-  hv.setUint32(4, 4326, true); // srs_id = 4326 WGS84
+  hv.setUint8(3, 0b00000011);
+  hv.setUint32(4, srsId | 0, true);
   hv.setFloat64(8, envelope.minX, true);
   hv.setFloat64(16, envelope.maxX, true);
   hv.setFloat64(24, envelope.minY, true);
   hv.setFloat64(32, envelope.maxY, true);
 
-  // Junta com o WKB
   const total = new Uint8Array(header.byteLength + wkbBuffer.byteLength);
   total.set(new Uint8Array(header), 0);
   total.set(new Uint8Array(wkbBuffer), header.byteLength);
@@ -3187,7 +3821,10 @@ async function buildProjectGpkgBytes(proj, projName) {
         ('Undefined geographic SRS', 0, 'NONE', 0, 'undefined', 'undefined geographic'),
         ('WGS 84 geodetic', 4326, 'EPSG', 4326,
          'GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563,AUTHORITY["EPSG","7030"]],AUTHORITY["EPSG","6326"]],PRIMEM["Greenwich",0,AUTHORITY["EPSG","8901"]],UNIT["degree",0.0174532925199433,AUTHORITY["EPSG","9122"]],AUTHORITY["EPSG","4326"]]',
-         'WGS 84');
+         'WGS 84'),
+        ('SIRGAS 2000 / UTM zone 22S', 31982, 'EPSG', 31982,
+         'PROJCS["SIRGAS 2000 / UTM zone 22S",GEOGCS["SIRGAS 2000",DATUM["Sistema_de_Referencia_Geocentrico_para_las_AmericaS_2000",SPHEROID["GRS 1980",6378137,298.257222101,AUTHORITY["EPSG","7019"]],AUTHORITY["EPSG","6674"]],PRIMEM["Greenwich",0,AUTHORITY["EPSG","8901"]],UNIT["degree",0.0174532925199433,AUTHORITY["EPSG","9122"]],AUTHORITY["EPSG","4674"]],PROJECTION["Transverse_Mercator"],PARAMETER["latitude_of_origin",0],PARAMETER["central_meridian",-51],PARAMETER["scale_factor",0.9996],PARAMETER["false_easting",500000],PARAMETER["false_northing",10000000],UNIT["metre",1,AUTHORITY["EPSG","9001"]],AXIS["Easting",EAST],AXIS["Northing",NORTH],AUTHORITY["EPSG","31982"]]',
+         'SIRGAS 2000 / UTM zone 22S');
 
       CREATE TABLE gpkg_contents (
         table_name TEXT NOT NULL PRIMARY KEY,
@@ -3228,7 +3865,11 @@ async function buildProjectGpkgBytes(proj, projName) {
         criado_em TEXT
       );
     `);
-    db.run(`INSERT INTO gpkg_geometry_columns VALUES (?, 'geom', 'LINESTRING', 4326, 0, 0);`, [routeTable]);
+    // Padrão de coordenadas: SIRGAS 2000 / UTM zone 22S (EPSG:31982).
+    // As features ficam com x=Easting (m), y=Northing (m).
+    const SRS_ID = UTM22S.srid; // 31982
+
+    db.run(`INSERT INTO gpkg_geometry_columns VALUES (?, 'geom', 'LINESTRING', ?, 0, 0);`, [routeTable, SRS_ID]);
 
     // Exporta CADA SEGMENTO como uma feature separada — assim pausar/retomar
     // não conecta pontos via linha reta no GeoPackage. Cada sub-rota preserva
@@ -3239,22 +3880,26 @@ async function buildProjectGpkgBytes(proj, projName) {
 
     proj.segments.forEach((seg, segIdx) => {
       if (seg.length < 2) return;
-      const coords = seg.map(p => [p.lng, p.lat]);
+      // Reprojeta cada ponto WGS84 → UTM 22S em metros (E, N).
+      const coords = seg.map(p => {
+        const u = UTM22S.fromLatLng(p.lat, p.lng);
+        return [u.e, u.n];
+      });
       const env = envelopeOf(coords);
-      // Atualiza bbox global
       overallBounds.minX = Math.min(overallBounds.minX, env.minX);
       overallBounds.minY = Math.min(overallBounds.minY, env.minY);
       overallBounds.maxX = Math.max(overallBounds.maxX, env.maxX);
       overallBounds.maxY = Math.max(overallBounds.maxY, env.maxY);
 
-      // Distância só deste segmento
+      // Distância em metros — usamos haversine (mais preciso que Pythagoras
+      // sobre UTM em distâncias longas) sobre as coords WGS84 originais.
       let segDist = 0;
       for (let i = 1; i < seg.length; i++) {
         segDist += haversine(seg[i-1].lat, seg[i-1].lng, seg[i].lat, seg[i].lng);
       }
 
       const wkb = wkbLineString(coords);
-      const gpkgGeom = buildGpkgGeometry(wkb, env);
+      const gpkgGeom = buildGpkgGeometry(wkb, env, SRS_ID);
       const subName = proj.segments.length > 1
         ? `${projName} — sub-rota ${segIdx + 1}`
         : projName;
@@ -3265,11 +3910,11 @@ async function buildProjectGpkgBytes(proj, projName) {
 
     if (exportedSegments > 0) {
       routeEnvelope = overallBounds;
-      db.run(`INSERT INTO gpkg_contents (table_name, data_type, identifier, description, srs_id, min_x, min_y, max_x, max_y) VALUES (?, 'features', ?, ?, 4326, ?, ?, ?, ?);`,
-        [routeTable, routeTable, `Rotas do projeto (${exportedSegments} sub-rota${exportedSegments > 1 ? 's' : ''})`, routeEnvelope.minX, routeEnvelope.minY, routeEnvelope.maxX, routeEnvelope.maxY]);
+      db.run(`INSERT INTO gpkg_contents (table_name, data_type, identifier, description, srs_id, min_x, min_y, max_x, max_y) VALUES (?, 'features', ?, ?, ?, ?, ?, ?, ?);`,
+        [routeTable, routeTable, `Rotas do projeto (${exportedSegments} sub-rota${exportedSegments > 1 ? 's' : ''})`, SRS_ID, routeEnvelope.minX, routeEnvelope.minY, routeEnvelope.maxX, routeEnvelope.maxY]);
     } else {
-      db.run(`INSERT INTO gpkg_contents (table_name, data_type, identifier, description, srs_id) VALUES (?, 'features', ?, ?, 4326);`,
-        [routeTable, routeTable, 'Rota gravada do projeto']);
+      db.run(`INSERT INTO gpkg_contents (table_name, data_type, identifier, description, srs_id) VALUES (?, 'features', ?, ?, ?);`,
+        [routeTable, routeTable, 'Rota gravada do projeto', SRS_ID]);
     }
 
     // ===== Tabela de interdições (Point) =====
@@ -3282,25 +3927,27 @@ async function buildProjectGpkgBytes(proj, projName) {
         registrado_em TEXT
       );
     `);
-    db.run(`INSERT INTO gpkg_geometry_columns VALUES (?, 'geom', 'POINT', 4326, 0, 0);`, [warnTable]);
+    db.run(`INSERT INTO gpkg_geometry_columns VALUES (?, 'geom', 'POINT', ?, 0, 0);`, [warnTable, SRS_ID]);
 
     let warnEnv = null;
     if (proj.warnings.length > 0) {
-      const allPts = proj.warnings.map(w => [w.lng, w.lat]);
-      warnEnv = envelopeOf(allPts);
-      proj.warnings.forEach(w => {
-        const wkb = wkbPoint(w.lng, w.lat);
-        const env = { minX: w.lng, maxX: w.lng, minY: w.lat, maxY: w.lat };
-        const gpkgGeom = buildGpkgGeometry(wkb, env);
-        const t = formatBrasiliaTime(w.t);
-        db.run(`INSERT INTO ${warnTable} (geom, nota, registrado_em) VALUES (?, ?, ?);`,
-          [gpkgGeom, w.note || '', t]);
+      const projected = proj.warnings.map(w => {
+        const u = UTM22S.fromLatLng(w.lat, w.lng);
+        return { e: u.e, n: u.n, note: w.note, t: w.t };
       });
-      db.run(`INSERT INTO gpkg_contents (table_name, data_type, identifier, description, srs_id, min_x, min_y, max_x, max_y) VALUES (?, 'features', ?, ?, 4326, ?, ?, ?, ?);`,
-        [warnTable, warnTable, 'Interdições marcadas', warnEnv.minX, warnEnv.minY, warnEnv.maxX, warnEnv.maxY]);
+      warnEnv = envelopeOf(projected.map(p => [p.e, p.n]));
+      projected.forEach(p => {
+        const wkb = wkbPoint(p.e, p.n);
+        const env = { minX: p.e, maxX: p.e, minY: p.n, maxY: p.n };
+        const gpkgGeom = buildGpkgGeometry(wkb, env, SRS_ID);
+        db.run(`INSERT INTO ${warnTable} (geom, nota, registrado_em) VALUES (?, ?, ?);`,
+          [gpkgGeom, p.note || '', formatBrasiliaTime(p.t)]);
+      });
+      db.run(`INSERT INTO gpkg_contents (table_name, data_type, identifier, description, srs_id, min_x, min_y, max_x, max_y) VALUES (?, 'features', ?, ?, ?, ?, ?, ?, ?);`,
+        [warnTable, warnTable, 'Interdições marcadas', SRS_ID, warnEnv.minX, warnEnv.minY, warnEnv.maxX, warnEnv.maxY]);
     } else {
-      db.run(`INSERT INTO gpkg_contents (table_name, data_type, identifier, description, srs_id) VALUES (?, 'features', ?, ?, 4326);`,
-        [warnTable, warnTable, 'Interdições marcadas']);
+      db.run(`INSERT INTO gpkg_contents (table_name, data_type, identifier, description, srs_id) VALUES (?, 'features', ?, ?, ?);`,
+        [warnTable, warnTable, 'Interdições marcadas', SRS_ID]);
     }
 
     // Exportar binário
@@ -3362,7 +4009,11 @@ async function uploadProjectGpkgSnapshot(projectName) {
     // MIME "application/octet-stream" é universalmente aceito por buckets Supabase;
     // usar o MIME específico do GPKG pode falhar quando o bucket tem allowed_mime_types restrito.
     const blob = new Blob([bytes], { type: 'application/octet-stream' });
-    const path = `${projectId}.gpkg`;
+
+    // Path legível: "{slug-projeto}__{uuid8}.gpkg" — facilita identificar pelo
+    // Storage do Supabase qual arquivo pertence a qual projeto sem abrir o banco.
+    const path = `${slugify(projectName)}__${projectId.slice(0, 8)}.gpkg`;
+    const oldPath = proj._gpkgPath;
 
     const { error } = await sb.storage
       .from(GPKG_STORAGE_BUCKET)
@@ -3372,6 +4023,13 @@ async function uploadProjectGpkgSnapshot(projectName) {
         cacheControl: '60',
       });
     if (error) throw error;
+
+    // Remove arquivo antigo se o nome mudou (renomeação do projeto, primeiro
+    // upload após migração para o novo padrão de nomes, etc).
+    if (oldPath && oldPath !== path) {
+      try { await sb.storage.from(GPKG_STORAGE_BUCKET).remove([oldPath]); } catch (_) {}
+    }
+    proj._gpkgPath = path;
 
     // Guarda o caminho + tamanho no metadata do projeto para referência
     try {
@@ -3393,6 +4051,373 @@ async function uploadProjectGpkgSnapshot(projectName) {
 }
 
 // ====================== IMPORT: KMZ / KML (múltiplos + persistente) ======================
+// ====================== IMPORT: GeoPackage (.gpkg) ======================
+// Lê um GPKG produzido por QGIS, GDAL ou pelo próprio Atta'M (export). Aceita
+// qualquer feature table com geometrias em SRID 4326 (WGS84). Mapeia:
+//   • LineString  → sub-rota (segmento) do projeto
+//   • Point       → interdição (warning)
+//   • Polygon     → perímetro
+// Documentado na aba "Sobre & padrão de arquivos" para usuários técnicos.
+
+// Decodifica geometria GPKG: cabeçalho variável (8 bytes mínimo + envelope opcional)
+// seguido de WKB padrão. Retorna { wkb, byteOrder } onde wkb aponta para o início
+// do WKB (após o cabeçalho GPKG). srs_id é validado pelo caller.
+function parseGpkgGeomHeader(uint8) {
+  if (uint8.length < 8) throw new Error('Geometria GPKG truncada');
+  if (uint8[0] !== 0x47 || uint8[1] !== 0x50) throw new Error('Geometria sem magic GPKG');
+  const flags = uint8[3];
+  const envelopeType = (flags >> 1) & 0x07; // bits 1-3
+  // Tamanho do envelope conforme spec OGC
+  const envSizes = [0, 32, 48, 48, 64];
+  const envSize = envSizes[envelopeType] || 0;
+  const headerSize = 8 + envSize;
+  // srs_id pode ser lido com endianness do flag bit 0 (cabeçalho GPKG)
+  const headerLE = (flags & 0x01) === 1;
+  const dv = new DataView(uint8.buffer, uint8.byteOffset, uint8.byteLength);
+  const srsId = dv.getUint32(4, headerLE);
+  return { wkbStart: headerSize, srsId };
+}
+
+// Decodifica WKB básico (Point, LineString, Polygon, MultiLineString,
+// MultiPolygon, MultiPoint). Retorna feature normalizada + `_end` (próximo
+// offset no buffer, necessário para Multi* iterarem sub-geometrias).
+function parseWkb(uint8, offset = 0) {
+  const dv = new DataView(uint8.buffer, uint8.byteOffset, uint8.byteLength);
+  const byteOrder = uint8[offset]; // 0=BE, 1=LE
+  const le = byteOrder === 1;
+  let pos = offset + 1;
+  const type = dv.getUint32(pos, le); pos += 4;
+
+  // Suporte a EWKB (PostGIS) e WKB OGC. Bits 30/31 = Z/M, bit 29 = SRID.
+  const baseType = type & 0xFF;
+  const hasZ = (type & 0x80000000) !== 0 || (type & 0x40000000) !== 0;
+  const hasSRID = (type & 0x20000000) !== 0;
+  if (hasSRID) pos += 4;
+
+  function readPoint() {
+    const x = dv.getFloat64(pos, le); pos += 8;
+    const y = dv.getFloat64(pos, le); pos += 8;
+    if (hasZ) pos += 8;
+    return [x, y]; // [lng, lat]
+  }
+  function readLineString() {
+    const n = dv.getUint32(pos, le); pos += 4;
+    const coords = [];
+    for (let i = 0; i < n; i++) coords.push(readPoint());
+    return coords;
+  }
+  function readPolygon() {
+    const nRings = dv.getUint32(pos, le); pos += 4;
+    const rings = [];
+    for (let i = 0; i < nRings; i++) rings.push(readLineString());
+    return rings;
+  }
+
+  let result;
+  if (baseType === 1)      result = { type: 'Point', coord: readPoint() };
+  else if (baseType === 2) result = { type: 'LineString', coords: readLineString() };
+  else if (baseType === 3) result = { type: 'Polygon', rings: readPolygon() };
+  else if (baseType === 4) {
+    const n = dv.getUint32(pos, le); pos += 4;
+    const points = [];
+    for (let i = 0; i < n; i++) {
+      const sub = parseWkb(uint8, pos);
+      points.push(sub.coord);
+      pos = sub._end;
+    }
+    result = { type: 'MultiPoint', points };
+  }
+  else if (baseType === 5) {
+    const n = dv.getUint32(pos, le); pos += 4;
+    const lines = [];
+    for (let i = 0; i < n; i++) {
+      const sub = parseWkb(uint8, pos);
+      lines.push(sub.coords);
+      pos = sub._end;
+    }
+    result = { type: 'MultiLineString', lines };
+  }
+  else if (baseType === 6) {
+    const n = dv.getUint32(pos, le); pos += 4;
+    const polys = [];
+    for (let i = 0; i < n; i++) {
+      const sub = parseWkb(uint8, pos);
+      polys.push(sub.rings);
+      pos = sub._end;
+    }
+    result = { type: 'MultiPolygon', polys };
+  }
+  else throw new Error('Tipo WKB não suportado: ' + baseType);
+
+  result._end = pos;
+  return result;
+}
+
+async function importGpkgFile(file) {
+  if (!file) return;
+  toast('Lendo ' + file.name + '...', '');
+
+  let SQL, db;
+  try {
+    SQL = await loadSQL();
+    const buf = new Uint8Array(await file.arrayBuffer());
+    db = new SQL.Database(buf);
+  } catch (e) {
+    console.error(e);
+    toast('Erro ao abrir GPKG: ' + e.message, 'error');
+    return;
+  }
+
+  try {
+    // Mapeia table_name → srs_id para reprojetar conforme a tabela.
+    // Aceita 4326 (WGS84) e 31982 (SIRGAS 2000 / UTM 22S). Outros são rejeitados.
+    const tableSrid = {};
+    let badSrid = null;
+    try {
+      const sridRes = db.exec(`SELECT table_name, srs_id FROM gpkg_geometry_columns;`);
+      if (sridRes[0]) {
+        for (const [tname, srid] of sridRes[0].values) {
+          if (srid !== 4326 && srid !== 31982 && srid !== 0) { badSrid = srid; break; }
+          tableSrid[tname] = srid;
+        }
+      }
+    } catch (_) { /* gpkg_geometry_columns ausente — seguimos com o que houver */ }
+    if (badSrid !== null) {
+      toast(`SRID ${badSrid} não suportado — use EPSG:31982 (SIRGAS 2000 / UTM 22S) ou EPSG:4326 (WGS84)`, 'error');
+      db.close(); return;
+    }
+
+    // Listar tabelas de features
+    let featureTables = [];
+    try {
+      const res = db.exec(`SELECT table_name FROM gpkg_contents WHERE data_type = 'features';`);
+      if (res[0]) featureTables = res[0].values.map(r => r[0]);
+    } catch (_) {}
+    if (featureTables.length === 0) {
+      toast('GPKG sem feature tables', 'warning');
+      db.close(); return;
+    }
+
+    // Onde colocar os dados?
+    let targetProjectName = state.currentProject;
+    if (!targetProjectName) {
+      const newName = prompt('Nome para o novo projeto criado a partir do GPKG:', file.name.replace(/\.gpkg$/i, ''));
+      if (!newName) { db.close(); return; }
+      createProject(newName);
+      targetProjectName = newName;
+    } else {
+      const useNew = !confirm(`Importar para o projeto atual "${targetProjectName}"?\n\nClique em Cancelar para criar um novo projeto a partir do GPKG.`);
+      if (useNew) {
+        const newName = prompt('Nome do novo projeto:', file.name.replace(/\.gpkg$/i, ''));
+        if (!newName) { db.close(); return; }
+        createProject(newName);
+        targetProjectName = newName;
+      }
+    }
+
+    let imported = { segments: 0, warnings: 0, perimeters: 0 };
+
+    for (const tbl of featureTables) {
+      // Descobre quais colunas existem (texto/atributos opcionais)
+      let cols = [];
+      try {
+        const info = db.exec(`PRAGMA table_info("${tbl}");`);
+        if (info[0]) cols = info[0].values.map(r => r[1]);
+      } catch (_) {}
+      // Coluna de nota: nota / nome / description / note (heurística)
+      const noteCol = ['nota', 'note', 'descricao', 'description', 'nome'].find(c => cols.includes(c));
+      const selectExpr = noteCol ? `"geom", "${noteCol}"` : `"geom"`;
+      let rows;
+      try {
+        const res = db.exec(`SELECT ${selectExpr} FROM "${tbl}";`);
+        rows = res[0]?.values || [];
+      } catch (e) {
+        console.warn('Falha ao ler tabela', tbl, e);
+        continue;
+      }
+
+      // SRID da tabela (cabeçalho de cada geom também traz, mas a tabela em
+      // gpkg_geometry_columns é a fonte autoritativa).
+      const tblSrid = tableSrid[tbl] || 4326;
+
+      // Função para converter coordenada [x, y] da SRID origem para [lng, lat] WGS84
+      const toLngLat = (xy) => {
+        if (tblSrid === 31982) {
+          const ll = UTM22S.toLatLng(xy[0], xy[1]);
+          return [ll.lng, ll.lat];
+        }
+        return xy; // já está em [lng, lat]
+      };
+
+      for (const row of rows) {
+        const geomBlob = row[0];
+        const noteVal = noteCol ? (row[1] || '') : '';
+        if (!geomBlob || !geomBlob.length) continue;
+        let header, geom;
+        try {
+          header = parseGpkgGeomHeader(geomBlob);
+          // Aceita srid 0 (indefinido) tratado como WGS84 por convenção
+          if (header.srsId !== 0 && header.srsId !== 4326 && header.srsId !== 31982) continue;
+          geom = parseWkb(geomBlob.subarray(header.wkbStart));
+        } catch (e) {
+          console.warn('Geometria inválida em', tbl, e);
+          continue;
+        }
+
+        if (geom.type === 'Point') {
+          const ll = toLngLat(geom.coord);
+          addImportedWarning(targetProjectName, ll[1], ll[0], String(noteVal));
+          imported.warnings++;
+        } else if (geom.type === 'MultiPoint') {
+          for (const c of geom.points) {
+            const ll = toLngLat(c);
+            addImportedWarning(targetProjectName, ll[1], ll[0], String(noteVal));
+            imported.warnings++;
+          }
+        } else if (geom.type === 'LineString') {
+          if (geom.coords.length >= 2) {
+            addImportedSegment(targetProjectName, geom.coords.map(toLngLat));
+            imported.segments++;
+          }
+        } else if (geom.type === 'MultiLineString') {
+          for (const ln of geom.lines) {
+            if (ln.length >= 2) {
+              addImportedSegment(targetProjectName, ln.map(toLngLat));
+              imported.segments++;
+            }
+          }
+        } else if (geom.type === 'Polygon') {
+          const rings = geom.rings.map(r => r.map(toLngLat));
+          addImportedPerimeter(targetProjectName, [rings], file.name);
+          imported.perimeters++;
+        } else if (geom.type === 'MultiPolygon') {
+          const polys = geom.polys.map(rings => rings.map(r => r.map(toLngLat)));
+          addImportedPerimeter(targetProjectName, polys, file.name);
+          imported.perimeters++;
+        }
+      }
+    }
+
+    db.close();
+
+    saveState();
+    if (state.currentProject === targetProjectName) {
+      clearProjectLayers();
+      loadProjectOnMap();
+    }
+
+    const total = imported.segments + imported.warnings + imported.perimeters;
+    if (total === 0) {
+      toast('GPKG aberto, mas nenhuma feature reconhecida', 'warning');
+    } else {
+      toast(
+        `Importado: ${imported.segments} rota(s), ${imported.warnings} interdição(ões), ${imported.perimeters} perímetro(s)`,
+        'success'
+      );
+    }
+  } catch (e) {
+    try { db.close(); } catch(_) {}
+    console.error(e);
+    toast('Erro ao importar GPKG: ' + e.message, 'error');
+  }
+}
+
+// Helpers de inserção a partir do import — reutilizam a fila de sync para
+// que dados importados também subam para o Supabase com nomes legíveis.
+function addImportedSegment(projectName, lngLatCoords) {
+  const proj = state.projects[projectName];
+  if (!proj) return;
+  const seg = lngLatCoords.map(([lng, lat]) => ({ lat, lng, t: Date.now() }));
+  proj.segments.push(seg);
+
+  // Distância
+  let segDist = 0;
+  for (let i = 1; i < seg.length; i++) {
+    segDist += haversine(seg[i-1].lat, seg[i-1].lng, seg[i].lat, seg[i].lng);
+  }
+  proj.distance = (proj.distance || 0) + segDist;
+
+  if (isAuthenticated()) {
+    const projectId = sync.projectIdByName[projectName];
+    if (projectId) {
+      const itemId = crypto.randomUUID();
+      segSetItemId(seg, itemId);
+      const seq = (proj.segments.filter(s => s && s._itemId).length);
+      sync.enqueue({
+        type: 'add_item', itemId, projectId, kind: 'route_segment',
+        name: generateItemName(projectName, 'route_segment', seq),
+        payload: {
+          points: seg.map(p => ({ lat: p.lat, lng: p.lng, t: p.t })),
+          created_at: new Date().toISOString(),
+          distance_m: segDist,
+        }
+      });
+    }
+  }
+}
+
+function addImportedWarning(projectName, lat, lng, note) {
+  const proj = state.projects[projectName];
+  if (!proj) return;
+  const itemId = crypto.randomUUID();
+  const w = { _itemId: itemId, lat, lng, note: note || '', t: Date.now(), by: currentUserName };
+  proj.warnings.push(w);
+  if (state.currentProject === projectName) {
+    addWarningMarkerToMap(lat, lng, w.note, w.t, itemId);
+  }
+  if (isAuthenticated()) {
+    const projectId = sync.projectIdByName[projectName];
+    if (projectId) {
+      const seq = nextItemSeq(proj, 'warning');
+      sync.enqueue({
+        type: 'add_item', itemId, projectId, kind: 'warning',
+        name: generateItemName(projectName, 'warning', seq),
+        payload: { lat, lng, note: w.note, t: w.t }
+      });
+    }
+  }
+}
+
+function addImportedPerimeter(projectName, polys, sourceName) {
+  const proj = state.projects[projectName];
+  if (!proj) return;
+  // polys: array de polígonos, cada polígono é [outerRing, hole1, hole2, ...]
+  // cada ring é array de [lng, lat]
+  const features = [];
+  for (const rings of polys) {
+    if (!rings || rings.length === 0) continue;
+    const outer = rings[0].map(([lng, lat]) => [lat, lng]); // Leaflet usa [lat,lng]
+    const holes = rings.slice(1).map(h => h.map(([lng, lat]) => [lat, lng]));
+    if (outer.length < 3) continue;
+    features.push({ type: 'polygon', outer, holes, popup: sourceName });
+  }
+  if (features.length === 0) return;
+
+  const itemId = crypto.randomUUID();
+  const perimeter = {
+    _itemId: itemId,
+    id: 'p_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+    name: sourceName,
+    addedAt: new Date().toISOString(),
+    features,
+    by: currentUserName,
+  };
+  proj.perimeters.push(perimeter);
+  if (state.currentProject === projectName) renderPerimeter(perimeter);
+
+  if (isAuthenticated()) {
+    const projectId = sync.projectIdByName[projectName];
+    if (projectId) {
+      const seq = nextItemSeq(proj, 'perimeter');
+      sync.enqueue({
+        type: 'add_item', itemId, projectId, kind: 'perimeter',
+        name: generateItemName(projectName, 'perimeter', seq),
+        payload: { id: perimeter.id, name: perimeter.name, addedAt: perimeter.addedAt, features }
+      });
+    }
+  }
+}
+
 async function importKmzFile(file) {
   if (!file) return;
   if (!state.currentProject) {
@@ -3492,8 +4517,11 @@ async function importKmzFile(file) {
     if (isAuthenticated()) {
       const projectId = sync.projectIdByName[state.currentProject];
       if (projectId) {
+        const proj = state.projects[state.currentProject];
+        const seq = nextItemSeq(proj, 'perimeter');
         sync.enqueue({
           type: 'add_item', itemId, projectId, kind: 'perimeter',
+          name: generateItemName(state.currentProject, 'perimeter', seq),
           payload: { id: perimeter.id, name: perimeter.name, addedAt: perimeter.addedAt, features }
         });
       }
@@ -3590,11 +4618,14 @@ function parseKmlCoords(text) {
 }
 
 // ====================== DIAGNOSTIC REPORT ======================
-// Limites baseados em testes e comportamento típico de navegadores mobile:
+// Limites baseados em testes e comportamento típico de navegadores 2024+:
 const LIMITS = {
-  // localStorage: navegadores mobile geralmente oferecem 5-10 MB por origem
-  STORAGE_SOFT_MB: 4,      // acima disso, começa a ficar arriscado
-  STORAGE_HARD_MB: 5,      // limite comum de falha em dispositivos antigos
+  // localStorage: Chrome/Edge desktop ≈ 10 MB, Firefox ≈ 10 MB, Safari ≈ 5-10 MB,
+  // mobile moderno ≈ 5-10 MB. Os valores antigos (4/5) eram excessivamente
+  // conservadores e disparavam "Crítico" em uso normal de PC com poucos projetos.
+  // Hoje só consideramos arriscado quando passa de 8 MB e crítico em 12 MB.
+  STORAGE_SOFT_MB: 8,      // acima disso, vale exportar projetos antigos
+  STORAGE_HARD_MB: 12,     // próximo do teto típico — risco real de QuotaExceededError
   // KMZ: cada feature custa bytes; arquivos enormes travam o parsing
   KMZ_SOFT_FEATURES: 500,  // até aqui roda suave
   KMZ_HARD_FEATURES: 2000, // acima disso, risco de travamento em mobile
@@ -3622,12 +4653,43 @@ function countFeaturesInPerimeter(perim) {
   return (perim.features || []).length;
 }
 
+// Tamanho do conteúdo persistido pelo app no localStorage.
+// Inclui o estado principal + fila de sync + tombstones — todas as chaves
+// que o app cria. Antes só contava STORAGE_KEY, subestimando o uso real.
+// Chars JS são UTF-16 (2 bytes/char); localStorage geralmente armazena em
+// UTF-8, então o número real costuma ser metade disso. Mantemos a estimativa
+// pelo pior caso (UTF-16) para alertar antes de bater no quota do browser.
 function estimateStorageBytes() {
+  let total = 0;
   try {
-    const raw = localStorage.getItem(STORAGE_KEY) || '';
-    // Cada char em localStorage ≈ 2 bytes (UTF-16)
-    return raw.length * 2;
-  } catch(e) { return 0; }
+    const keys = ['fieldmapper_v1', 'fieldmapper_sync_queue', 'fieldmapper_tombstones'];
+    for (const k of keys) {
+      const raw = localStorage.getItem(k);
+      if (raw) total += (raw.length + k.length) * 2;
+    }
+  } catch (_) {}
+  return total;
+}
+
+// Breakdown por chave — útil para diagnóstico (ver onde os bytes estão indo).
+function estimateStorageBreakdown() {
+  const out = {};
+  try {
+    for (const k of ['fieldmapper_v1', 'fieldmapper_sync_queue', 'fieldmapper_tombstones']) {
+      const raw = localStorage.getItem(k);
+      out[k] = raw ? raw.length * 2 : 0;
+    }
+  } catch (_) {}
+  return out;
+}
+
+// Quota real do browser, se disponível via Storage API. Promise → bytes ou null.
+async function getRealStorageQuota() {
+  if (!navigator.storage || !navigator.storage.estimate) return null;
+  try {
+    const est = await navigator.storage.estimate();
+    return { quota: est.quota || null, usage: est.usage || null };
+  } catch (_) { return null; }
 }
 
 function formatBytes(bytes) {
@@ -3730,17 +4792,40 @@ function renderDiagnostic() {
   // Versão da aplicação
   const APP_VERSION = '1.5';
 
+  // Breakdown por chave para enxergar onde os bytes estão indo
+  const breakdown = estimateStorageBreakdown();
+  const projectsBytes = breakdown['fieldmapper_v1'] || 0;
+  const queueBytes = breakdown['fieldmapper_sync_queue'] || 0;
+  const tombstoneBytes = breakdown['fieldmapper_tombstones'] || 0;
+
   container.innerHTML = `
     <div class="diag-section">
       <div class="diag-section-title">Armazenamento Local</div>
       <div class="diag-card">
         <div class="diag-row">
-          <span class="diag-row-label">Em uso</span>
+          <span class="diag-row-label">Em uso (estimado)</span>
           <span class="diag-row-value ${storageClass}">${formatBytes(storageBytes)}</span>
         </div>
         <div class="diag-row">
-          <span class="diag-row-label">Limite recomendado</span>
+          <span class="diag-row-label">&nbsp;&nbsp;↳ Projetos &amp; rotas</span>
+          <span class="diag-row-value" style="font-size:12px;color:var(--text-muted)">${formatBytes(projectsBytes)}</span>
+        </div>
+        <div class="diag-row">
+          <span class="diag-row-label">&nbsp;&nbsp;↳ Fila de sincroniza&ccedil;&atilde;o</span>
+          <span class="diag-row-value" style="font-size:12px;color:var(--text-muted)">${formatBytes(queueBytes)}</span>
+        </div>
+        ${tombstoneBytes > 0 ? `
+        <div class="diag-row">
+          <span class="diag-row-label">&nbsp;&nbsp;↳ Tombstones (deletes)</span>
+          <span class="diag-row-value" style="font-size:12px;color:var(--text-muted)">${formatBytes(tombstoneBytes)}</span>
+        </div>` : ''}
+        <div class="diag-row">
+          <span class="diag-row-label">Limite seguro recomendado</span>
           <span class="diag-row-value">${LIMITS.STORAGE_HARD_MB} MB</span>
+        </div>
+        <div class="diag-row">
+          <span class="diag-row-label">Quota do navegador</span>
+          <span class="diag-row-value" id="diagBrowserQuota">verificando…</span>
         </div>
         <div class="diag-row">
           <span class="diag-row-label">Status</span>
@@ -3749,6 +4834,9 @@ function renderDiagnostic() {
         <div class="diag-bar-container">
           <div class="diag-bar-fill ${storageClass}" style="width:${storagePct}%"></div>
         </div>
+      </div>
+      <div class="diag-note" style="font-size:11px;color:var(--text-muted)">
+        Estimativa pelo pior caso (UTF-16). O armazenamento real do navegador costuma ocupar metade disso.
       </div>
       ${storageMB >= LIMITS.STORAGE_SOFT_MB ? `
         <div class="diag-note">
@@ -3860,6 +4948,16 @@ function renderDiagnostic() {
       Dados armazenados localmente no dispositivo
     </div>
   `;
+
+  // Quota real do navegador é assíncrona — popula após render principal.
+  getRealStorageQuota().then(q => {
+    const el = document.getElementById('diagBrowserQuota');
+    if (!el) return;
+    if (!q || !q.quota) { el.textContent = 'indisponível'; return; }
+    const quotaMB = (q.quota / (1024 * 1024)).toFixed(0);
+    const usageMB = q.usage ? (q.usage / (1024 * 1024)).toFixed(1) : '?';
+    el.textContent = `${usageMB} / ${quotaMB} MB`;
+  });
 }
 
 function renderPerimeterList() {
@@ -4089,13 +5187,15 @@ function wireEvents() {
   // Settings
   function openSettingsModal() {
     document.getElementById('toggleAskDescription').checked = state.settings.askDescription;
-    document.getElementById('toggleFollow').checked = state.settings.followUser;
     const sliderVal = Math.round(state.settings.kmzFillOpacity * 100);
     document.getElementById('sliderOpacity').value = sliderVal;
     document.getElementById('opacityValue').textContent = sliderVal + '%';
     const kVal = state.settings.kalmanNoise || 10.0;
     document.getElementById('sliderKalman').value = kVal;
     document.getElementById('kalmanValue').textContent = kVal.toFixed(1);
+    const wVal = state.settings.routeLineWeight ?? 6.9;
+    document.getElementById('sliderLineWeight').value = wVal;
+    document.getElementById('lineWeightValue').textContent = wVal.toFixed(1);
     openModal('settingsModal');
   }
   document.getElementById('openSettingsFromMenuBtn').addEventListener('click', () => {
@@ -4108,16 +5208,6 @@ function wireEvents() {
     state.settings.askDescription = e.target.checked;
     saveState();
     toast(e.target.checked ? 'Descrição será solicitada' : 'Descrição desativada', 'success');
-  });
-
-  document.getElementById('toggleFollow').addEventListener('change', (e) => {
-    state.settings.followUser = e.target.checked;
-    state.followUser = e.target.checked;
-    updateLocateBtn();
-    saveState();
-    if (e.target.checked && state.position) {
-      state.map.panTo([state.position.lat, state.position.lng]);
-    }
   });
 
   // Slider de opacidade dos perímetros (tempo real)
@@ -4138,12 +5228,37 @@ function wireEvents() {
     state.settings.kalmanNoise = v;
     kalmanProcessNoise = v;
   });
+  // Slider espessura da linha (tempo real — atualiza polylines do projeto atual)
+  document.getElementById('sliderLineWeight').addEventListener('input', (e) => {
+    const v = parseFloat(e.target.value);
+    document.getElementById('lineWeightValue').textContent = v.toFixed(1);
+    state.settings.routeLineWeight = v;
+    state.polylines.forEach(pl => { if (pl) pl.setStyle({ weight: v }); });
+  });
+  document.getElementById('sliderLineWeight').addEventListener('change', () => {
+    saveState();
+    toast('Espessura da linha ajustada', 'success');
+  });
+
   document.getElementById('sliderKalman').addEventListener('change', () => {
     saveState();
     toast('Filtro Kalman ajustado', 'success');
   });
 
   document.getElementById('exportBtn').addEventListener('click', () => { exportProject(); closeModal('menuModal'); });
+
+  // Importar GeoPackage — pode criar projeto novo ou anexar ao atual
+  document.getElementById('importGpkgBtn').addEventListener('click', () => {
+    document.getElementById('gpkgFileInput').click();
+  });
+  document.getElementById('gpkgFileInput').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      closeModal('menuModal');
+      await importGpkgFile(file);
+    }
+    e.target.value = '';
+  });
 
   // Perímetros (KMZ) — modal dedicado para múltiplos
   document.getElementById('openPerimetersBtn').addEventListener('click', () => {
@@ -4213,7 +5328,18 @@ function wireEvents() {
 
 // ====================== INIT ======================
 loadState();
+tombstones.load();
 wireEvents();
+
+// Registra Service Worker (PWA). Falha silenciosa em browsers que não
+// suportam — o app continua funcionando, só não fica instalável/offline.
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(err => {
+      console.warn('Service Worker não registrado:', err);
+    });
+  });
+}
 </script>
 </body>
 </html>
