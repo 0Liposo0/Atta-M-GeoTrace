@@ -2653,21 +2653,20 @@ function showBackgroundLimitationOnce() {
 //
 // Limitações:
 //   - Posições NÃO são salvas em banco — só passam pelo Realtime (efêmero).
-//   - Se um operador fica >30s sem update (presence stale), seu marker some.
-//   - Throttle de 3s evita hammering do canal — ainda assim, tracker de UI
-//     atualiza imediatamente ao receber join/sync events de outros.
+// Live tracking via Supabase Realtime Presence.
+// Eventos usados:
+//   sync  → snapshot completo ao entrar no canal ou quando alguém sai
+//   join  → dispara em TODA atualização de estado (track()), inclusive posição
+//   leave → peer saiu do canal
 
-const LIVE_PUBLISH_INTERVAL_MS = 3000;
 const LIVE_PEER_TIMEOUT_MS = 30000;
 
 const liveTracking = {
   channel: null,
   currentProjectId: null,
-  peers: new Map(), // userId → { marker, name, lastSeen, lat, lng, accuracy }
-  lastPublishAt: 0,
+  peers: new Map(), // userId → { marker, trail, trailPoints, name, lastSeen, lat, lng }
   staleSweepInterval: null,
 
-  // Inicia tracking para um projeto. Fecha canal anterior se houver.
   async start(projectId) {
     if (!projectId) return;
     if (!isAuthenticated()) return;
@@ -2681,23 +2680,30 @@ const liveTracking = {
       config: { presence: { key: userId } }
     });
 
+    // sync: snapshot completo (join inicial + leave de outro peer)
     this.channel.on('presence', { event: 'sync' }, () => {
-      const presenceState = this.channel.presenceState();
-      this.applyPresenceSnapshot(presenceState);
+      this.applyPresenceSnapshot(this.channel.presenceState());
     });
+
+    // join: dispara em TODA chamada de track() — incluindo atualizações de posição.
+    // Este é o evento correto para receber posições em tempo real.
+    this.channel.on('presence', { event: 'join' }, ({ key, newPresences }) => {
+      if (key === userId) return;
+      const p = newPresences[newPresences.length - 1];
+      if (p && typeof p.lat === 'number') this.upsertPeer(key, p);
+    });
+
     this.channel.on('presence', { event: 'leave' }, ({ key }) => {
       this.removePeer(key);
     });
 
     this.channel.subscribe(async (status) => {
-      if (status === 'SUBSCRIBED' && state.position) {
-        // Publica imediatamente ao subscrever para que outros já me vejam
-        await this.doPublish(state.position.lat, state.position.lng,
-          state.position.accuracy, state.gpsHeading);
+      if (status === 'SUBSCRIBED') {
+        const pos = state.position;
+        if (pos) await this.doPublish(pos.lat, pos.lng, pos.accuracy, state.gpsHeading);
       }
     });
 
-    // Sweeper para remover peers que pararam de atualizar
     if (this.staleSweepInterval) clearInterval(this.staleSweepInterval);
     this.staleSweepInterval = setInterval(() => this.sweepStale(), 5000);
   },
@@ -2712,21 +2718,16 @@ const liveTracking = {
       this.channel = null;
     }
     this.currentProjectId = null;
-    // Limpa markers + trails de peers
     for (const peer of this.peers.values()) {
       if (peer.marker) state.map.removeLayer(peer.marker);
-      if (peer.trail) state.map.removeLayer(peer.trail);
+      if (peer.trail)  state.map.removeLayer(peer.trail);
     }
     this.peers.clear();
-    this.lastPublishAt = 0;
   },
 
-  // Publica nossa posição atual — throttled para 3s.
+  // Sem throttle de software — o GPS já é o limitante natural (1–5 s por fix).
   publishPosition(lat, lng, accuracy, heading) {
     if (!this.channel) return;
-    const now = Date.now();
-    if (now - this.lastPublishAt < LIVE_PUBLISH_INTERVAL_MS) return;
-    this.lastPublishAt = now;
     this.doPublish(lat, lng, accuracy, heading);
   },
 
@@ -2736,24 +2737,23 @@ const liveTracking = {
       await this.channel.track({
         userId: currentUser.id,
         name: currentUserName || 'Operador',
-        lat, lng, accuracy: accuracy || null,
+        lat, lng,
+        accuracy: accuracy || null,
         heading: heading || null,
         t: Date.now(),
       });
-    } catch (_) { /* canal pode estar fechando — ignorar */ }
+    } catch (_) {}
   },
 
   applyPresenceSnapshot(presenceState) {
     const seen = new Set();
     for (const [key, presences] of Object.entries(presenceState)) {
-      // Ignora a si mesmo
       if (key === currentUser.id) continue;
-      const p = presences[presences.length - 1]; // mais recente
+      const p = presences[presences.length - 1];
       if (!p || typeof p.lat !== 'number') continue;
       seen.add(key);
       this.upsertPeer(key, p);
     }
-    // Remove peers que não estão mais no snapshot
     for (const key of Array.from(this.peers.keys())) {
       if (!seen.has(key)) this.removePeer(key);
     }
@@ -2771,38 +2771,38 @@ const liveTracking = {
       });
       const marker = L.marker([p.lat, p.lng], { icon, interactive: true })
         .addTo(state.map)
-        .bindTooltip(p.name || 'Operador', { direction: 'top', offset: [0, -10] });
-      // Trail (polyline) que cresce conforme o peer publica novas posições.
-      // Tracejado e translúcido para distinguir das rotas reais (azul sólido).
+        .bindTooltip(p.name || 'Operador', { direction: 'top', offset: [0, -10], permanent: false });
+
+      // Trail sólido branco/claro — visível sobre o mapa, distinto das rotas azuis.
       const trail = L.polyline([[p.lat, p.lng]], {
-        color: '#94a3b8',
-        weight: 3,
-        opacity: 0.6,
-        dashArray: '6,6',
+        color: '#f1f5f9',
+        weight: 4,
+        opacity: 0.85,
         lineCap: 'round',
+        lineJoin: 'round',
       }).addTo(state.map);
+
       peer = {
-        marker, trail, name: p.name,
-        lastSeen: p.t || Date.now(),
-        lat: p.lat, lng: p.lng, accuracy: p.accuracy,
+        marker, trail,
         trailPoints: [[p.lat, p.lng]],
+        name: p.name,
+        lastSeen: p.t || Date.now(),
+        lat: p.lat, lng: p.lng,
       };
       this.peers.set(userId, peer);
     } else {
       peer.marker.setLatLng([p.lat, p.lng]);
-      // Só estende o trail se o peer realmente se moveu (>2m) — evita
-      // jitter de GPS criar pontos colados.
+
+      // Estende trail apenas se o peer se moveu >1m (evita jitter GPS).
       const moved = peer.trailPoints.length === 0 ||
-        haversine(peer.lat, peer.lng, p.lat, p.lng) >= 2;
+        haversine(peer.lat, peer.lng, p.lat, p.lng) >= 1;
       if (moved) {
         peer.trailPoints.push([p.lat, p.lng]);
-        // Limita o trail a últimos 500 pontos para não inflar a memória
-        if (peer.trailPoints.length > 500) {
-          peer.trailPoints = peer.trailPoints.slice(-500);
-        }
+        if (peer.trailPoints.length > 2000) peer.trailPoints = peer.trailPoints.slice(-2000);
         peer.trail.setLatLngs(peer.trailPoints);
       }
-      peer.lat = p.lat; peer.lng = p.lng; peer.accuracy = p.accuracy;
+
+      peer.lat = p.lat; peer.lng = p.lng;
       peer.lastSeen = p.t || Date.now();
       if (peer.name !== p.name && p.name) {
         peer.name = p.name;
@@ -2816,7 +2816,7 @@ const liveTracking = {
     const peer = this.peers.get(userId);
     if (peer) {
       if (peer.marker) state.map.removeLayer(peer.marker);
-      if (peer.trail) state.map.removeLayer(peer.trail);
+      if (peer.trail)  state.map.removeLayer(peer.trail);
     }
     this.peers.delete(userId);
   },
@@ -2824,9 +2824,7 @@ const liveTracking = {
   sweepStale() {
     const now = Date.now();
     for (const [key, peer] of Array.from(this.peers.entries())) {
-      if (now - peer.lastSeen > LIVE_PEER_TIMEOUT_MS) {
-        this.removePeer(key);
-      }
+      if (now - peer.lastSeen > LIVE_PEER_TIMEOUT_MS) this.removePeer(key);
     }
   },
 };
@@ -4334,7 +4332,29 @@ async function importGpkgFile(file) {
 
     db.close();
 
+    // Recalcular distância total a partir de todos os segmentos do projeto
+    // (evita drift se proj.distance estava desatualizado antes do import).
+    {
+      const proj = state.projects[targetProjectName];
+      if (proj) {
+        let totalDist = 0;
+        for (const seg of (proj.segments || [])) {
+          for (let i = 1; i < seg.length; i++) {
+            totalDist += haversine(seg[i-1].lat, seg[i-1].lng, seg[i].lat, seg[i].lng);
+          }
+        }
+        proj.distance = totalDist;
+        if (isAuthenticated() && imported.segments > 0) {
+          const projectId = sync.projectIdByName[targetProjectName];
+          if (projectId) {
+            sync.enqueue({ type: 'update_project_distance', projectId, distance: totalDist });
+          }
+        }
+      }
+    }
+
     saveState();
+    renderProjectList();
     if (state.currentProject === targetProjectName) {
       clearProjectLayers();
       loadProjectOnMap();
